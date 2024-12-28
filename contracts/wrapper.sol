@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import '@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol';
-import '../node_modules/@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol';
+import './interfaces/IUniswapV2Router02.sol';
+import '@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol';
 import "@pythnetwork/pyth-sdk-solidity/IPyth.sol";
 import "@pythnetwork/pyth-sdk-solidity/PythStructs.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -25,7 +25,7 @@ contract LiquidityWrapper is Ownable {
         address _pythOracle,
         address _tokenAddress,
         address _usdtAddress
-    ) {
+    ) Ownable(msg.sender) {
         uniswapRouter = IUniswapV2Router02(_uniswapRouter);
         chainlinkOracle = AggregatorV3Interface(_chainlinkOracle);
         pythOracle = IPyth(_pythOracle);
@@ -35,39 +35,39 @@ contract LiquidityWrapper is Ownable {
     }
 
     function getChainlinkPrice() public view returns (uint256) {
-        (, int256 price, , , ) = chainlinkOracle.latestRoundData();
-        require(price > 0, "Invalid Chainlink price");
+        (, int256 price,,,) = chainlinkOracle.latestRoundData();
         return uint256(price);
     }
 
     function getPythPrice() public view returns (uint256) {
-        bytes32 priceId = 0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43; 
+        bytes32 priceId = bytes32("BTC/USD"); // This should be the correct Pyth price feed ID
         PythStructs.Price memory pythPrice = pythOracle.getPriceUnsafe(priceId);
-        require(pythPrice.price > 0, "Invalid Pyth price");
-        return uint256(pythPrice.price);
+        // Convert price to same decimals as Chainlink (8 decimals)
+        if (pythPrice.expo < -8) {
+            uint256 scale = uint256(uint32(-8 - pythPrice.expo));
+            return pythPrice.price >= 0 ? uint256(uint64(pythPrice.price)) * (10**scale) : 0;
+        } else if (pythPrice.expo > -8) {
+            uint256 scale = uint256(uint32(pythPrice.expo + 8));
+            return pythPrice.price >= 0 ? uint256(uint64(pythPrice.price)) / (10**scale) : 0;
+        }
+        return pythPrice.price >= 0 ? uint256(uint64(pythPrice.price)) : 0;
     }
 
-    function addLiquidityWithStable(uint256 usdtAmount) external {
+    function addLiquidityWithUSDT(uint256 usdtAmount) external {
         require(usdt.balanceOf(msg.sender) >= usdtAmount, "Insufficient USDT balance");
 
-        // Transfer USDT from user to contract
         usdt.transferFrom(msg.sender, address(this), usdtAmount);
 
-        // Get token price in USDT
-        uint256 tokenPrice = getChainlinkPrice(); // Example: prioritize Chainlink
+        uint256 tokenPrice = getChainlinkPrice(); 
 
-        // Calculate required token amount
         uint256 tokenAmount = (usdtAmount * 1e18) / tokenPrice;
 
-        // Swap USDT for token
         uint256 halfUSDT = usdtAmount / 2;
         swapUSDTForToken(halfUSDT);
 
-        // Approve Uniswap Router to spend tokens
         usdt.approve(address(uniswapRouter), halfUSDT);
         token.approve(address(uniswapRouter), tokenAmount);
 
-        // Add liquidity to Uniswap pool
         uniswapRouter.addLiquidity(
             address(usdt),
             address(token),
@@ -89,7 +89,7 @@ contract LiquidityWrapper is Ownable {
 
         uniswapRouter.swapExactTokensForTokens(
             usdtAmount,
-            0,
+            0, 
             path,
             address(this),
             block.timestamp

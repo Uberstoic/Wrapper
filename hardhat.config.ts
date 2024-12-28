@@ -6,7 +6,7 @@ import "hardhat-gas-reporter";
 import "solidity-coverage";
 import "@nomicfoundation/hardhat-verify";
 import * as dotenv from "dotenv";
-import "./tasks/dao-tasks";
+import "./tasks/wrapper";
 
 dotenv.config();
 
@@ -26,7 +26,11 @@ const config: HardhatUserConfig = {
       accounts: process.env.PRIVATE_KEY ? [`0x${process.env.PRIVATE_KEY}`] : []
     },
     hardhat: {
-      chainId: 31337
+      chainId: 31337,
+      forking: {
+        url: `https://eth-mainnet.alchemyapi.io/v2/${process.env.ALCHEMY_API_KEY}`,
+        blockNumber: 18950000 // You can specify a block number for consistent testing
+      }
     }
   },
   etherscan: {
