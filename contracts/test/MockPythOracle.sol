@@ -1,98 +1,81 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@pythnetwork/pyth-sdk-solidity/AbstractPyth.sol";
+import "@pythnetwork/pyth-sdk-solidity/IPyth.sol";
 import "@pythnetwork/pyth-sdk-solidity/PythStructs.sol";
-import "@pythnetwork/pyth-sdk-solidity/PythErrors.sol";
 
-contract MockPythOracle is AbstractPyth {
-    mapping(bytes32 => PythStructs.Price) private prices;
-    mapping(bytes32 => PythStructs.PriceFeed) private feeds;
-    int32 private constant PRICE_EXPO = -8; // Same as Chainlink for consistency
-    uint private constant VALID_TIME_PERIOD = 3600; // 1 hour
-
+contract MockPythOracle is IPyth {
+    int64 private _price;
+    
     constructor() {
-        // Initialize with BTC price of $30,000
-        bytes32 priceId = bytes32("BTC/USD");
-        prices[priceId] = PythStructs.Price(
-            30000 * 10**8, // price
-            uint64(0),     // conf
-            PRICE_EXPO,    // expo
-            uint64(block.timestamp)  // timestamp
-        );
+        _price = 30000 * 10**8; // Initial price $30,000 with 8 decimals
+    }
 
-        // Initialize price feed
-        feeds[priceId] = PythStructs.PriceFeed({
-            id: priceId,
-            price: prices[priceId],
-            emaPrice: prices[priceId]
+    function setPrice(int64 newPrice) external {
+        _price = newPrice;
+    }
+
+    function getPriceUnsafe(bytes32) external view returns (PythStructs.Price memory) {
+        return PythStructs.Price({
+            price: _price,
+            conf: 0,
+            expo: -8,
+            publishTime: uint64(block.timestamp)
         });
     }
 
-    function setPrice(bytes32 priceId, int64 price) external {
-        prices[priceId] = PythStructs.Price(
-            price,
-            uint64(0),
-            PRICE_EXPO,
-            uint64(block.timestamp)
-        );
-
-        // Update price feed as well
-        feeds[priceId] = PythStructs.PriceFeed({
-            id: priceId,
-            price: prices[priceId],
-            emaPrice: prices[priceId]
+    function getEmaPriceUnsafe(bytes32) external view returns (PythStructs.Price memory) {
+        return PythStructs.Price({
+            price: _price,
+            conf: 0,
+            expo: -8,
+            publishTime: uint64(block.timestamp)
         });
     }
 
-    function queryPriceFeed(bytes32 id) public view override returns (PythStructs.PriceFeed memory priceFeed) {
-        if (!priceFeedExists(id)) revert PythErrors.PriceFeedNotFound();
-        return feeds[id];
+    function getPrice(bytes32) external pure returns (PythStructs.Price memory) {
+        revert("Not implemented");
     }
 
-    function priceFeedExists(bytes32 id) public view override returns (bool exists) {
-        return prices[id].publishTime > 0;
+    function getEmaPrice(bytes32) external pure returns (PythStructs.Price memory) {
+        revert("Not implemented");
     }
 
-    function getValidTimePeriod() public pure override returns (uint) {
-        return VALID_TIME_PERIOD;
+    function getPriceNoOlderThan(bytes32, uint) external pure returns (PythStructs.Price memory) {
+        revert("Not implemented");
     }
 
-    function updatePriceFeeds(bytes[] calldata updateData) public payable override {
-        // Mock implementation - do nothing
+    function getEmaPriceNoOlderThan(bytes32, uint) external pure returns (PythStructs.Price memory) {
+        revert("Not implemented");
     }
 
-    function updatePriceFeedsIfNecessary(
-        bytes[] calldata updateData,
-        bytes32[] calldata priceIds,
-        uint64[] calldata publishTimes
-    ) public payable override {
-        // Mock implementation - do nothing
+    function getPriceUpdateData(bytes32) external pure returns (bytes memory) {
+        revert("Not implemented");
     }
 
-    function getUpdateFee(bytes[] calldata updateData) public pure override returns (uint) {
+    function getUpdateFee(bytes[] memory) external pure returns (uint) {
         return 0;
     }
 
-    function parsePriceFeedUpdates(
-        bytes[] calldata updateData,
-        bytes32[] calldata priceIds,
-        uint64 minPublishTime,
-        uint64 maxPublishTime
-    ) external payable override returns (PythStructs.PriceFeed[] memory priceFeeds) {
-        // Mock implementation - return empty array
-        priceFeeds = new PythStructs.PriceFeed[](0);
-        return priceFeeds;
+    function updatePriceFeeds(bytes[] memory) external payable {
+        // Mock implementation - do nothing
     }
 
-    function parsePriceFeedUpdatesUnique(
-        bytes[] calldata updateData,
-        bytes32[] calldata priceIds,
-        uint64 minPublishTime,
-        uint64 maxPublishTime
-    ) external payable override returns (PythStructs.PriceFeed[] memory priceFeeds) {
-        // Mock implementation - return empty array
-        priceFeeds = new PythStructs.PriceFeed[](0);
-        return priceFeeds;
+    function updatePriceFeedsIfNecessary(bytes[] memory, bytes32[] memory, uint64[] memory) external payable {
+        // Mock implementation - do nothing
+    }
+
+    function parsePriceFeedUpdates(bytes[] memory, bytes32[] memory, uint64, uint64) external payable returns (PythStructs.PriceFeed[] memory) {
+        PythStructs.PriceFeed[] memory feeds = new PythStructs.PriceFeed[](0);
+        return feeds;
+    }
+
+    function parsePriceFeedUpdatesUnique(bytes[] memory, bytes32[] memory, uint64, uint64) external payable returns (PythStructs.PriceFeed[] memory) {
+        PythStructs.PriceFeed[] memory feeds = new PythStructs.PriceFeed[](0);
+        return feeds;
+    }
+
+    function getValidTimePeriod() external pure returns (uint) {
+        return 3600;
     }
 }

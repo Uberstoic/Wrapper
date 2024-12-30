@@ -1,75 +1,457 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
-import { LiquidityWrapper, IERC20 } from "../typechain-types";
+import { 
+  LiquidityWrapper, 
+  MockERC20, 
+  MockChainlinkOracle,
+  MockPythOracle,
+  MockUniswapRouter,
+  MockERC20__factory,
+  MockChainlinkOracle__factory,
+  MockPythOracle__factory,
+  LiquidityWrapper__factory,
+  MockUniswapRouter__factory
+} from "../typechain-types";
 
 describe("LiquidityWrapper", function () {
   let wrapper: LiquidityWrapper;
   let owner: SignerWithAddress;
   let user: SignerWithAddress;
-  let token: IERC20;
-  let usdt: IERC20;
+  let otherUser: SignerWithAddress;
+  let token: MockERC20;
+  let usdt: MockERC20;
+  let chainlinkOracle: MockChainlinkOracle;
+  let pythOracle: MockPythOracle;
+  let uniswapRouter: MockUniswapRouter;
 
   beforeEach(async function () {
-    [owner, user] = await ethers.getSigners();
+    [owner, user, otherUser] = await ethers.getSigners();
 
-    // Deploy mock tokens and price feeds for testing
-    const MockToken = await ethers.getContractFactory("MockERC20");
-    token = await MockToken.deploy("Mock Token", "TOKEN");
-    usdt = await MockToken.deploy("Mock USDT", "USDT");
+    // Deploy mock tokens
+    const MockToken = await ethers.getContractFactory("MockERC20") as MockERC20__factory;
+    token = await MockToken.deploy(
+      "Mock Token",
+      "TOKEN",
+      ethers.utils.parseEther("1000000")
+    );
+    await token.deployed();
+    
+    usdt = await MockToken.deploy(
+      "Mock USDT",
+      "USDT",
+      ethers.utils.parseEther("1000000")
+    );
+    await usdt.deployed();
 
-    const MockChainlinkOracle = await ethers.getContractFactory("MockChainlinkOracle");
-    const chainlinkOracle = await MockChainlinkOracle.deploy();
+    // Deploy mock oracles
+    const MockChainlink = await ethers.getContractFactory("MockChainlinkOracle") as MockChainlinkOracle__factory;
+    chainlinkOracle = await MockChainlink.deploy();
+    await chainlinkOracle.deployed();
 
-    const MockPythOracle = await ethers.getContractFactory("MockPythOracle");
-    const pythOracle = await MockPythOracle.deploy();
+    const MockPyth = await ethers.getContractFactory("MockPythOracle") as MockPythOracle__factory;
+    pythOracle = await MockPyth.deploy();
+    await pythOracle.deployed();
 
-    // Deploy Uniswap V2 contracts
-    const UniswapV2Factory = await ethers.getContractFactory("UniswapV2Factory");
-    const factory = await UniswapV2Factory.deploy(owner.address);
+    // Deploy mock router
+    const MockRouter = await ethers.getContractFactory("MockUniswapRouter") as MockUniswapRouter__factory;
+    uniswapRouter = await MockRouter.deploy();
+    await uniswapRouter.deployed();
 
-    const UniswapV2Router02 = await ethers.getContractFactory("UniswapV2Router02");
-    const router = await UniswapV2Router02.deploy(factory.address, ethers.constants.AddressZero);
+    // Set token address in router
+    await uniswapRouter.setToken(token.address);
 
     // Deploy wrapper contract
-    const Wrapper = await ethers.getContractFactory("LiquidityWrapper");
+    const Wrapper = await ethers.getContractFactory("LiquidityWrapper") as LiquidityWrapper__factory;
     wrapper = await Wrapper.deploy(
-      router.address,
+      uniswapRouter.address,
       chainlinkOracle.address,
       pythOracle.address,
       token.address,
       usdt.address
     );
+    await wrapper.deployed();
+
+    // Setup initial token balances for testing
+    await token.mint(user.address, ethers.utils.parseEther("1000"));
+    await usdt.mint(user.address, ethers.utils.parseEther("1000000")); // 1M USDT
+    await token.mint(uniswapRouter.address, ethers.utils.parseEther("1000000")); // Liquidity for swaps
+    await usdt.mint(uniswapRouter.address, ethers.utils.parseEther("1000000")); // Liquidity for swaps
+
+    // Approve wrapper to spend tokens
+    await usdt.connect(user).approve(wrapper.address, ethers.constants.MaxUint256);
+    await token.connect(user).approve(wrapper.address, ethers.constants.MaxUint256);
+  });
+
+  describe("Deployment", function () {
+    it("Should set the correct token addresses", async function () {
+      expect(await wrapper.token()).to.equal(token.address);
+      expect(await wrapper.usdt()).to.equal(usdt.address);
+    });
+
+    it("Should set the correct oracle addresses", async function () {
+      expect(await wrapper.chainlinkOracle()).to.equal(chainlinkOracle.address);
+      expect(await wrapper.pythOracle()).to.equal(pythOracle.address);
+    });
+
+    it("Should set the correct owner", async function () {
+      expect(await wrapper.owner()).to.equal(owner.address);
+    });
+
+    it("Should revert if deployed with zero addresses", async function () {
+      const Wrapper = await ethers.getContractFactory("LiquidityWrapper") as LiquidityWrapper__factory;
+      
+      await expect(
+        Wrapper.deploy(
+          ethers.constants.AddressZero,
+          chainlinkOracle.address,
+          pythOracle.address,
+          token.address,
+          usdt.address
+        )
+      ).to.be.reverted;
+
+      await expect(
+        Wrapper.deploy(
+          uniswapRouter.address,
+          ethers.constants.AddressZero,
+          pythOracle.address,
+          token.address,
+          usdt.address
+        )
+      ).to.be.reverted;
+
+      await expect(
+        Wrapper.deploy(
+          uniswapRouter.address,
+          chainlinkOracle.address,
+          ethers.constants.AddressZero,
+          token.address,
+          usdt.address
+        )
+      ).to.be.reverted;
+
+      await expect(
+        Wrapper.deploy(
+          uniswapRouter.address,
+          chainlinkOracle.address,
+          pythOracle.address,
+          ethers.constants.AddressZero,
+          usdt.address
+        )
+      ).to.be.reverted;
+
+      await expect(
+        Wrapper.deploy(
+          uniswapRouter.address,
+          chainlinkOracle.address,
+          pythOracle.address,
+          token.address,
+          ethers.constants.AddressZero
+        )
+      ).to.be.reverted;
+    });
   });
 
   describe("Price Feeds", function () {
+    beforeEach(async function () {
+      await chainlinkOracle.setPrice(30000 * 10**8); // $30,000
+      await pythOracle.setPrice(30000 * 10**8); // $30,000
+    });
+
     it("Should get price from Chainlink", async function () {
       const price = await wrapper.getChainlinkPrice();
-      expect(price).to.be.gt(0);
+      expect(price).to.equal(30000 * 10**8);
     });
 
     it("Should get price from Pyth", async function () {
       const price = await wrapper.getPythPrice();
-      expect(price).to.be.gt(0);
+      expect(price).to.equal(30000 * 10**8);
+    });
+
+    it("Should get aggregated price", async function () {
+      const price = await wrapper.getAggregatedPrice();
+      expect(price).to.equal(30000 * 10**8);
+    });
+
+    it("Should revert on Chainlink oracle failure", async function () {
+      await chainlinkOracle.setPrice(0);
+      await expect(wrapper.getChainlinkPrice())
+        .to.be.revertedWith("Invalid Chainlink price");
+    });
+
+    it("Should revert on Pyth oracle failure", async function () {
+      await pythOracle.setPrice(0);
+      await expect(wrapper.getPythPrice())
+        .to.be.revertedWith("Invalid Pyth price");
+    });
+
+    it("Should use average when both oracles work", async function () {
+      await chainlinkOracle.setPrice(3000 * 10**8);
+      await pythOracle.setPrice(4000 * 10**8);
+      const price = await wrapper.getAggregatedPrice();
+      expect(price).to.equal(3500 * 10**8);
+    });
+
+    it("Should handle extreme price differences between oracles", async function () {
+      await chainlinkOracle.setPrice(29000 * 10**8); // $29,000
+      await pythOracle.setPrice(31000 * 10**8);   // $31,000
+      const price = await wrapper.getAggregatedPrice();
+      expect(price).to.equal(30000 * 10**8); // Average should be $30,000
+    });
+
+    it("Should handle price updates from oracles", async function () {
+      // Initial prices
+      await chainlinkOracle.setPrice(30000 * 10**8);
+      await pythOracle.setPrice(30000 * 10**8);
+      let price = await wrapper.getAggregatedPrice();
+      expect(price).to.equal(30000 * 10**8);
+
+      // Update prices
+      await chainlinkOracle.setPrice(31000 * 10**8);
+      await pythOracle.setPrice(31000 * 10**8);
+      price = await wrapper.getAggregatedPrice();
+      expect(price).to.equal(31000 * 10**8);
     });
   });
 
-  describe("Liquidity Addition", function () {
+  describe("Liquidity Addition with USDT", function () {
     beforeEach(async function () {
-      // Mint some tokens to user
-      await usdt.mint(user.address, ethers.utils.parseEther("1000"));
-      await token.mint(user.address, ethers.utils.parseEther("1000"));
-
-      // Approve wrapper to spend tokens
-      await usdt.connect(user).approve(wrapper.address, ethers.constants.MaxUint256);
-      await token.connect(user).approve(wrapper.address, ethers.constants.MaxUint256);
+      await chainlinkOracle.setPrice(30000 * 10**8); // $30,000
+      await pythOracle.setPrice(30000 * 10**8); // $30,000
     });
 
-    it("Should add liquidity with USDT only", async function () {
-      const usdtAmount = ethers.utils.parseEther("100");
-      await wrapper.connect(user).addLiquidityWithUSDT(usdtAmount);
+    it("Should revert when adding liquidity with insufficient USDT", async function () {
+      const largeAmount = ethers.utils.parseEther("2000000"); // More than minted
+      await expect(
+        wrapper.connect(user).addLiquidityWithUSDT(largeAmount)
+      ).to.be.revertedWith("Insufficient USDT balance");
+    });
+
+    it("Should revert when USDT not approved", async function () {
+      await usdt.connect(user).approve(wrapper.address, 0);
+      const amount = ethers.utils.parseEther("100");
+      await expect(
+        wrapper.connect(user).addLiquidityWithUSDT(amount)
+      ).to.be.revertedWith("Insufficient USDT allowance");
+    });
+
+    it("Should revert when amount is zero", async function () {
+      await expect(
+        wrapper.connect(user).addLiquidityWithUSDT(0)
+      ).to.be.revertedWith("Amount must be greater than 0");
+    });
+
+    it("Should transfer USDT from user", async function () {
+      const amount = ethers.utils.parseEther("100");
+      const balanceBefore = await usdt.balanceOf(user.address);
       
-      // Add assertions to check liquidity was added correctly
+      await wrapper.connect(user).addLiquidityWithUSDT(amount);
+      
+      const balanceAfter = await usdt.balanceOf(user.address);
+      expect(balanceBefore.sub(balanceAfter)).to.equal(amount);
+    });
+
+    it("Should handle minimum amounts", async function () {
+      const amount = ethers.utils.parseEther("0.000001"); // Very small amount
+      await expect(
+        wrapper.connect(user).addLiquidityWithUSDT(amount)
+      ).to.not.be.reverted;
+    });
+
+    it("Should handle maximum amounts", async function () {
+      const amount = ethers.utils.parseEther("1000000"); // 1M USDT
+      await expect(
+        wrapper.connect(user).addLiquidityWithUSDT(amount)
+      ).to.not.be.reverted;
+    });
+
+    it("Should handle multiple consecutive additions", async function () {
+      const amount = ethers.utils.parseEther("1000");
+      
+      // Add liquidity multiple times
+      await wrapper.connect(user).addLiquidityWithUSDT(amount);
+      await wrapper.connect(user).addLiquidityWithUSDT(amount);
+      await wrapper.connect(user).addLiquidityWithUSDT(amount);
+
+      // Check final balance
+      const finalBalance = await usdt.balanceOf(user.address);
+      const expectedBalance = ethers.utils.parseEther("1000000").sub(amount.mul(3));
+      expect(finalBalance).to.equal(expectedBalance);
+    });
+  });
+
+  describe("Liquidity Addition with Both Tokens", function () {
+    beforeEach(async function () {
+      await chainlinkOracle.setPrice(30000 * 10**8); // $30,000
+      await pythOracle.setPrice(30000 * 10**8); // $30,000
+    });
+
+    it("Should revert when adding liquidity with incorrect token ratio", async function () {
+      const usdtAmount = ethers.utils.parseEther("30000");
+      const incorrectTokenAmount = ethers.utils.parseEther("0.5"); // Should be 1.0
+      
+      await expect(
+        wrapper.connect(user).addLiquidityWithBothTokens(usdtAmount, incorrectTokenAmount)
+      ).to.be.revertedWith("Invalid token ratio");
+    });
+
+    it("Should revert when tokens not approved", async function () {
+      const usdtAmount = ethers.utils.parseEther("30000");
+      const tokenAmount = ethers.utils.parseEther("1.0");
+
+      await token.connect(user).approve(wrapper.address, 0);
+      await expect(
+        wrapper.connect(user).addLiquidityWithBothTokens(usdtAmount, tokenAmount)
+      ).to.be.revertedWith("Insufficient token allowance");
+    });
+
+    it("Should revert when amounts are zero", async function () {
+      await expect(
+        wrapper.connect(user).addLiquidityWithBothTokens(0, 0)
+      ).to.be.revertedWith("Amounts must be greater than 0");
+    });
+
+    it("Should transfer tokens from user", async function () {
+      const usdtAmount = ethers.utils.parseEther("30000");
+      const tokenAmount = ethers.utils.parseEther("1.0");
+
+      const usdtBalanceBefore = await usdt.balanceOf(user.address);
+      const tokenBalanceBefore = await token.balanceOf(user.address);
+
+      await wrapper.connect(user).addLiquidityWithBothTokens(usdtAmount, tokenAmount);
+
+      const usdtBalanceAfter = await usdt.balanceOf(user.address);
+      const tokenBalanceAfter = await token.balanceOf(user.address);
+
+      expect(usdtBalanceBefore.sub(usdtBalanceAfter)).to.equal(usdtAmount);
+      expect(tokenBalanceBefore.sub(tokenBalanceAfter)).to.equal(tokenAmount);
+    });
+
+    it("Should allow small price deviations within threshold", async function () {
+      const usdtAmount = ethers.utils.parseEther("30000");
+      const tokenAmount = ethers.utils.parseEther("1.0");
+      
+      // Set slightly different prices in oracles (within 2% threshold)
+      await chainlinkOracle.setPrice(29500 * 10**8); // -1.67%
+      await pythOracle.setPrice(30500 * 10**8);   // +1.67%
+
+      // Should not revert
+      await expect(
+        wrapper.connect(user).addLiquidityWithBothTokens(usdtAmount, tokenAmount)
+      ).to.not.be.reverted;
+    });
+
+    it("Should handle minimum amounts", async function () {
+      const usdtAmount = ethers.utils.parseEther("0.000001"); // Very small USDT amount
+      const tokenAmount = ethers.utils.parseEther("0.0000000000333333"); // Equivalent token amount
+
+      await expect(
+        wrapper.connect(user).addLiquidityWithBothTokens(usdtAmount, tokenAmount)
+      ).to.not.be.reverted;
+    });
+
+    it("Should handle maximum amounts", async function () {
+      const usdtAmount = ethers.utils.parseEther("1000000"); // 1M USDT
+      const tokenAmount = ethers.utils.parseEther("33.333333"); // Equivalent token amount
+
+      await expect(
+        wrapper.connect(user).addLiquidityWithBothTokens(usdtAmount, tokenAmount)
+      ).to.not.be.reverted;
+    });
+
+    it("Should handle multiple consecutive additions", async function () {
+      const usdtAmount = ethers.utils.parseEther("30000");
+      const tokenAmount = ethers.utils.parseEther("1.0");
+
+      // Add liquidity multiple times
+      await wrapper.connect(user).addLiquidityWithBothTokens(usdtAmount, tokenAmount);
+      await wrapper.connect(user).addLiquidityWithBothTokens(usdtAmount, tokenAmount);
+      await wrapper.connect(user).addLiquidityWithBothTokens(usdtAmount, tokenAmount);
+
+      // Check final balances
+      const finalUsdtBalance = await usdt.balanceOf(user.address);
+      const finalTokenBalance = await token.balanceOf(user.address);
+      
+      const expectedUsdtBalance = ethers.utils.parseEther("1000000").sub(usdtAmount.mul(3));
+      const expectedTokenBalance = ethers.utils.parseEther("1000").sub(tokenAmount.mul(3));
+      
+      expect(finalUsdtBalance).to.equal(expectedUsdtBalance);
+      expect(finalTokenBalance).to.equal(expectedTokenBalance);
+    });
+
+    it("Should revert when price deviation exceeds threshold", async function () {
+      const usdtAmount = ethers.utils.parseEther("30000");
+      const tokenAmount = ethers.utils.parseEther("1.0");
+      
+      // Set prices with more than 2% difference
+      await chainlinkOracle.setPrice(29000 * 10**8); // -3.33%
+      await pythOracle.setPrice(31000 * 10**8);   // +3.33%
+
+      await expect(
+        wrapper.connect(user).addLiquidityWithBothTokens(usdtAmount, tokenAmount)
+      ).to.be.revertedWith("Invalid token ratio");
+    });
+  });
+
+  describe("Access Control", function () {
+    it("Should only allow owner to update Chainlink oracle", async function () {
+      const newAddress = ethers.Wallet.createRandom().address;
+
+      await expect(
+        wrapper.connect(otherUser).setChainlinkOracle(newAddress)
+      ).to.be.revertedWith("OwnableUnauthorizedAccount");
+
+      await expect(
+        wrapper.connect(owner).setChainlinkOracle(newAddress)
+      ).to.not.be.reverted;
+
+      expect(await wrapper.chainlinkOracle()).to.equal(newAddress);
+    });
+
+    it("Should only allow owner to update Pyth oracle", async function () {
+      const newAddress = ethers.Wallet.createRandom().address;
+
+      await expect(
+        wrapper.connect(otherUser).setPythOracle(newAddress)
+      ).to.be.revertedWith("OwnableUnauthorizedAccount");
+
+      await expect(
+        wrapper.connect(owner).setPythOracle(newAddress)
+      ).to.not.be.reverted;
+
+      expect(await wrapper.pythOracle()).to.equal(newAddress);
+    });
+
+    it("Should not allow setting oracle to zero address", async function () {
+      await expect(
+        wrapper.connect(owner).setChainlinkOracle(ethers.constants.AddressZero)
+      ).to.be.revertedWith("Invalid oracle address");
+
+      await expect(
+        wrapper.connect(owner).setPythOracle(ethers.constants.AddressZero)
+      ).to.be.revertedWith("Invalid oracle address");
+    });
+
+    it("Should emit events when updating oracles", async function () {
+      const newAddress = ethers.Wallet.createRandom().address;
+
+      await expect(wrapper.connect(owner).setChainlinkOracle(newAddress))
+        .to.emit(wrapper, "ChainlinkOracleUpdated")
+        .withArgs(chainlinkOracle.address, newAddress);
+
+      await expect(wrapper.connect(owner).setPythOracle(newAddress))
+        .to.emit(wrapper, "PythOracleUpdated")
+        .withArgs(pythOracle.address, newAddress);
+    });
+
+    it("Should maintain owner after oracle updates", async function () {
+      const newAddress = ethers.Wallet.createRandom().address;
+      
+      await wrapper.connect(owner).setChainlinkOracle(newAddress);
+      await wrapper.connect(owner).setPythOracle(newAddress);
+      
+      expect(await wrapper.owner()).to.equal(owner.address);
     });
   });
 });

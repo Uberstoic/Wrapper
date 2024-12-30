@@ -21,24 +21,19 @@ const config: HardhatUserConfig = {
     }
   },
   networks: {
-    sepolia: {
-      url: `https://eth-sepolia.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
-      accounts: process.env.PRIVATE_KEY ? [`0x${process.env.PRIVATE_KEY}`] : []
-    },
     hardhat: {
-      chainId: 31337,
       forking: {
         url: `https://eth-mainnet.alchemyapi.io/v2/${process.env.ALCHEMY_API_KEY}`,
         blockNumber: 18950000 // You can specify a block number for consistent testing
       }
+    },
+    sepolia: {
+      url: `https://eth-sepolia.alchemyapi.io/v2/${process.env.ALCHEMY_API_KEY}`,
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : []
     }
   },
   etherscan: {
     apiKey: process.env.ETHERSCAN_API_KEY
-  },
-  typechain: {
-    outDir: "typechain-types",
-    target: "ethers-v5"
   }
 };
 
