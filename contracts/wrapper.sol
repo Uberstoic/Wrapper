@@ -20,6 +20,7 @@ contract LiquidityWrapper is Ownable {
 
     event ChainlinkOracleUpdated(address indexed oldOracle, address indexed newOracle);
     event PythOracleUpdated(address indexed oldOracle, address indexed newOracle);
+    event LiquidityAdded(address indexed user, uint256 usdtAmount, uint256 tokenAmount);
 
     constructor(
         address _uniswapRouter,
@@ -121,6 +122,8 @@ contract LiquidityWrapper is Ownable {
             msg.sender,
             block.timestamp
         );
+        
+        emit LiquidityAdded(msg.sender, halfUSDT, minTokenAmount / 2);
     }
 
     function swapUSDTForToken(uint256 usdtAmount, uint256 minTokenAmount) internal {
@@ -177,5 +180,7 @@ contract LiquidityWrapper is Ownable {
             msg.sender,
             block.timestamp
         );
+        
+        emit LiquidityAdded(msg.sender, usdtAmount, tokenAmount);
     }
 }

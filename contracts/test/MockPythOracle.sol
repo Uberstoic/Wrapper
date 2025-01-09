@@ -70,9 +70,13 @@ contract MockPythOracle is IPyth {
         return feeds;
     }
 
-    function parsePriceFeedUpdatesUnique(bytes[] memory, bytes32[] memory, uint64, uint64) external payable returns (PythStructs.PriceFeed[] memory) {
-        PythStructs.PriceFeed[] memory feeds = new PythStructs.PriceFeed[](0);
-        return feeds;
+    function parsePriceFeedUpdatesUnique(
+        bytes[] calldata updateData,
+        bytes32[] calldata priceIds,
+        uint64 minPublishTime,
+        uint64 maxPublishTime
+    ) external payable returns (PythStructs.PriceFeed[] memory) {
+        return new PythStructs.PriceFeed[](0);
     }
 
     function getValidTimePeriod() external pure returns (uint) {
