@@ -77,4 +77,40 @@ contract MockUniswapRouter {
     function setToken(address _token) external {
         token = IERC20(_token);
     }
+     function getAmountsOut(uint256 amountIn, address[] calldata path) external view returns (uint256[] memory amounts) {
+        // Mock implementation
+        amounts = new uint256[](path.length);
+        for (uint256 i = 0; i < path.length; i++) {
+            amounts[i] = amountIn; // Simplified calculation
+        }
+        return amounts;
+    }
+
+    function getAmountsIn(uint256 amountOut, address[] calldata path) external view returns (uint256[] memory amounts) {
+        // Mock implementation
+        amounts = new uint256[](path.length);
+        for (uint256 i = 0; i < path.length; i++) {
+            amounts[i] = amountOut; // Simplified calculation
+        }
+        return amounts;
+    }
+
+    // Example function for calculating price deviation
+    function calculatePriceDeviation(address tokenA, address tokenB) internal view returns (uint256) {
+        // Implement price deviation calculation logic
+        // For example, compare current price with reference price
+        uint256 currentPrice = getCurrentPrice(tokenA, tokenB);
+        uint256 referencePrice = getReferencePrice(tokenA, tokenB);
+        return (currentPrice > referencePrice) ? (currentPrice - referencePrice) : (referencePrice - currentPrice);
+    }
+
+    function getCurrentPrice(address tokenA, address tokenB) internal view returns (uint256) {
+        // Implement logic for getting current price
+        return 0; // Example value
+    }
+
+    function getReferencePrice(address tokenA, address tokenB) internal view returns (uint256) {
+        // Implement logic for getting reference price
+        return 0; // Example value
+    }
 }

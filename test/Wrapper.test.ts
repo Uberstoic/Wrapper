@@ -1,8 +1,11 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
+import * as dotenv from "dotenv";
+dotenv.config();
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import { 
   LiquidityWrapper, 
+  IUniswapV2Router02,
   MockERC20, 
   MockChainlinkOracle,
   MockPythOracle,
@@ -13,6 +16,10 @@ import {
   LiquidityWrapper__factory,
   MockUniswapRouter__factory
 } from "../typechain-types";
+
+const provider = new ethers.providers.JsonRpcProvider(
+  `https://eth-sepolia.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`
+);
 
 describe("LiquidityWrapper", function () {
   let wrapper: LiquidityWrapper;
@@ -150,6 +157,103 @@ describe("LiquidityWrapper", function () {
           ethers.constants.AddressZero
         )
       ).to.be.reverted;
+    });
+  });
+
+  describe("IUniswapV2Router02", function () {
+    let uniswapRouter: MockUniswapRouter;
+    let tokenA: MockERC20;
+    let tokenB: MockERC20;
+    let deployer: SignerWithAddress;
+    let liquidity: BigNumber;
+    let amountADesired: BigNumber;
+    let amountBDesired: BigNumber;
+    let amountAMin: BigNumber;
+    let amountBMin: BigNumber;
+    let to: string;
+    let deadline: number;
+
+    before(async function () {
+        [deployer] = await ethers.getSigners();
+        
+        // Деплой токенов
+        const MockToken = await ethers.getContractFactory("MockERC20");
+        tokenA = await MockToken.deploy("Token A", "TKNA", ethers.utils.parseEther("1000000"));
+        await tokenA.deployed();
+        
+        tokenB = await MockToken.deploy("Token B", "TKNB", ethers.utils.parseEther("1000000"));
+        await tokenB.deployed();
+
+        // Деплой и инициализация роутера
+        const MockRouter = await ethers.getContractFactory("MockUniswapRouter");
+        uniswapRouter = await MockRouter.deploy();
+        await uniswapRouter.deployed();
+        
+        // Установка начальных значений
+        amountADesired = ethers.utils.parseEther("100");
+        amountBDesired = ethers.utils.parseEther("100");
+        amountAMin = ethers.utils.parseEther("90");
+        amountBMin = ethers.utils.parseEther("90");
+        liquidity = ethers.utils.parseEther("100");
+        to = deployer.address;
+        deadline = Math.floor(Date.now() / 1000) + 3600;
+
+        // Минт токенов для тестов
+        await tokenA.mint(deployer.address, amountADesired.mul(2));
+        await tokenB.mint(deployer.address, amountBDesired.mul(2));
+
+        // Approve токенов для роутера
+        await tokenA.approve(uniswapRouter.address, amountADesired.mul(2));
+        await tokenB.approve(uniswapRouter.address, amountBDesired.mul(2));
+    });
+
+    it("should add liquidity", async function () {
+        const tx = await uniswapRouter.addLiquidity(
+            tokenA.address,
+            tokenB.address,
+            amountADesired,
+            amountBDesired,
+            amountAMin,
+            amountBMin,
+            to,
+            deadline
+        );
+        await expect(tx).to.emit(uniswapRouter, "LiquidityAdded").withArgs(tokenA.address, tokenB.address, amountADesired, amountBDesired, amountAMin, amountBMin, to, deadline);
+    });
+
+    it("should remove liquidity", async function () {
+        const tx = await uniswapRouter.removeLiquidity(
+            tokenA.address,
+            tokenB.address,
+            liquidity,
+            amountAMin,
+            amountBMin,
+            to,
+            deadline
+        );
+        await expect(tx).to.emit(uniswapRouter, "LiquidityRemoved").withArgs(tokenA.address, tokenB.address, liquidity, amountAMin, amountBMin, to, deadline);
+    });
+
+    it("should swap exact tokens for tokens", async function () {
+        const amountIn = ethers.utils.parseEther("10");
+        const amountOutMin = ethers.utils.parseEther("9");
+        const path = [tokenA.address, tokenB.address];
+        const tx = await uniswapRouter.swapExactTokensForTokens(amountIn, amountOutMin, path, to, deadline);
+        await expect(tx).to.emit(uniswapRouter, "TokensSwapped").withArgs(amountIn, amountOutMin, path, to, deadline);
+    });
+
+    it("should get amounts out", async function () {
+        const amountIn = ethers.utils.parseEther("10");
+        const path = [tokenA.address, tokenB.address];
+        const amounts = await uniswapRouter.getAmountsOut(amountIn, path);
+        expect(amounts).to.be.an("array").that.is.not.empty;
+    });
+
+    it("should get amounts in", async function () {
+        const amountOut = ethers.utils.parseEther("10");
+        const path = [tokenA.address, tokenB.address];
+        const amounts = await uniswapRouter.getAmountsIn(amountOut, path);
+        expect(amounts).to.be.an("array").that.is.not.empty;
     });
   });
 
@@ -454,4 +558,170 @@ describe("LiquidityWrapper", function () {
       expect(await wrapper.owner()).to.equal(owner.address);
     });
   });
+  describe("MockPythOracle", function () {
+    let oracle: MockPythOracle;
+
+    beforeEach(async function () {
+        const MockPythOracleFactory = (await ethers.getContractFactory(
+            "MockPythOracle"
+        )) as MockPythOracle__factory;
+        oracle = await MockPythOracleFactory.deploy();
+        await oracle.deployed();
+    });
+
+    it("should return the initial price", async function () {
+        const price = await oracle.getPriceUnsafe(ethers.constants.HashZero);
+        const expectedPrice = ethers.BigNumber.from(30000).mul(ethers.BigNumber.from(10).pow(8));
+        expect(price.price).to.equal(expectedPrice);
+    });
+
+    it("should update the price", async function () {
+        const newPrice = ethers.BigNumber.from(35000).mul(ethers.BigNumber.from(10).pow(8));
+        await oracle.setPrice(newPrice);
+        const price = await oracle.getPriceUnsafe(ethers.constants.HashZero);
+        expect(price.price).to.equal(newPrice);
+    });
+
+    it("should return the correct exponent and confidence interval", async function () {
+        const price = await oracle.getPriceUnsafe(ethers.constants.HashZero);
+        expect(price.expo).to.equal(-8);
+        expect(price.conf).to.equal(0);
+    });
+
+    it("should return the correct EMA price", async function () {
+        const price = await oracle.getEmaPriceUnsafe(ethers.constants.HashZero);
+        expect(price.expo).to.equal(-8);
+        expect(price.conf).to.equal(0);
+    });
+
+    it("should revert when calling getPrice", async function () {
+        await expect(oracle.getPrice(ethers.constants.HashZero)).to.be.revertedWith("Not implemented");
+    });
+
+    it("should revert when calling getEmaPrice", async function () {
+        await expect(oracle.getEmaPrice(ethers.constants.HashZero)).to.be.revertedWith("Not implemented");
+    });
+
+    it("should revert when calling getPriceNoOlderThan", async function () {
+        await expect(oracle.getPriceNoOlderThan(ethers.constants.HashZero, 0)).to.be.revertedWith("Not implemented");
+    });
+
+    it("should revert when calling getEmaPriceNoOlderThan", async function () {
+        await expect(oracle.getEmaPriceNoOlderThan(ethers.constants.HashZero, 0)).to.be.revertedWith("Not implemented");
+    });
+
+    it("should revert when calling getPriceUpdateData", async function () {
+        await expect(oracle.getPriceUpdateData(ethers.constants.HashZero)).to.be.revertedWith("Not implemented");
+    });
+
+    it("should return zero update fee", async function () {
+        const fee = await oracle.getUpdateFee([]);
+        expect(fee).to.equal(0);
+    });
+
+    it("should not revert when calling updatePriceFeeds", async function () {
+        await expect(oracle.updatePriceFeeds([])).to.not.be.reverted;
+    });
+
+    it("should not revert when calling updatePriceFeedsIfNecessary", async function () {
+        await expect(oracle.updatePriceFeedsIfNecessary([], [], [])).to.not.be.reverted;
+    });
+
+    it("should return empty array when parsing price feed updates", async function () {
+        const tx = await oracle.parsePriceFeedUpdates([], [], 0, 0);
+        await tx.wait();
+    });
+
+    it("should return empty array when parsing unique price feed updates", async function () {
+      const tx = await oracle.parsePriceFeedUpdatesUnique([], [], 0, 0);
+      const result = await tx.wait();
+      expect(result).to.deep.equal([]);
+    });
+
+    it("should return the correct valid time period", async function () {
+        const validTimePeriod = await oracle.getValidTimePeriod();
+        expect(validTimePeriod).to.equal(3600);
+    });
+  });
+
+  describe("MockChainlinkOracle", function () {
+    let oracle: any;
+
+    beforeEach(async function () {
+        const MockChainlinkOracle = await ethers.getContractFactory("MockChainlinkOracle");
+        oracle = await MockChainlinkOracle.deploy();
+        await oracle.deployed();
+    });
+
+    it("should have an initial price of $30,000 with 8 decimals", async function () {
+        const result = await oracle.latestRoundData();
+        const price = result.answer;
+        const expected = ethers.BigNumber.from(30000).mul(ethers.BigNumber.from(10).pow(8));
+        expect(price).to.equal(expected);
+    });
+
+    it("should update the price to $35,000 with 8 decimals", async function () {
+        const newPrice = ethers.BigNumber.from(35000).mul(ethers.BigNumber.from(10).pow(8));
+        await oracle.setPrice(newPrice);
+        const result = await oracle.latestRoundData();
+        const price = result.answer;
+        expect(price).to.equal(newPrice);
+    });
+
+    it("should return 8 decimals", async function () {
+        const decimals = await oracle.decimals();
+        expect(decimals).to.equal(8);
+    });
+
+    it("should return description 'BTC / USD'", async function () {
+        const description = await oracle.description();
+        expect(description).to.equal("BTC / USD");
+    });
+
+    it("should return version 1", async function () {
+        const version = await oracle.version();
+        expect(version).to.equal(1);
+    });
+
+    it("should return round data with default values", async function () {
+        const roundId = 1;
+        const result = await oracle.getRoundData(roundId);
+        expect(result.roundId).to.equal(roundId);
+        expect(result.answer).to.equal(0);
+        expect(result.startedAt).to.equal(0);
+        expect(result.updatedAt).to.equal(0);
+        expect(result.answeredInRound).to.equal(0);
+    });
+
+    it("should update the price multiple times", async function () {
+        const prices = [
+            ethers.BigNumber.from(32000).mul(ethers.BigNumber.from(10).pow(8)),
+            ethers.BigNumber.from(33000).mul(ethers.BigNumber.from(10).pow(8)),
+            ethers.BigNumber.from(34000).mul(ethers.BigNumber.from(10).pow(8)),
+        ];
+        for (const newPrice of prices) {
+            await oracle.setPrice(newPrice);
+            const result = await oracle.latestRoundData();
+            const price = result.answer;
+            expect(price).to.equal(newPrice);
+        }
+    });
+
+    it("should handle large price values", async function () {
+        const largePrice = ethers.BigNumber.from(1000000).mul(ethers.BigNumber.from(10).pow(8));
+        await oracle.setPrice(largePrice);
+        const result = await oracle.latestRoundData();
+        const price = result.answer;
+        expect(price).to.equal(largePrice);
+    });
+
+    it("should handle negative price values", async function () {
+        const negativePrice = ethers.BigNumber.from(-10000).mul(ethers.BigNumber.from(10).pow(8));
+        await oracle.setPrice(negativePrice);
+        const result = await oracle.latestRoundData();
+        const price = result.answer;
+        expect(price).to.equal(negativePrice);
+    });
+  });
+
 });
