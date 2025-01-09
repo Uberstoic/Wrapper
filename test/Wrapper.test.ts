@@ -176,7 +176,6 @@ describe("LiquidityWrapper", function () {
     before(async function () {
         [deployer] = await ethers.getSigners();
         
-        // Деплой токенов
         const MockToken = await ethers.getContractFactory("MockERC20");
         tokenA = await MockToken.deploy("Token A", "TKNA", ethers.utils.parseEther("1000000"));
         await tokenA.deployed();
@@ -184,12 +183,10 @@ describe("LiquidityWrapper", function () {
         tokenB = await MockToken.deploy("Token B", "TKNB", ethers.utils.parseEther("1000000"));
         await tokenB.deployed();
 
-        // Деплой и инициализация роутера
         const MockRouter = await ethers.getContractFactory("MockUniswapRouter");
         uniswapRouter = await MockRouter.deploy();
         await uniswapRouter.deployed();
         
-        // Установка начальных значений
         amountADesired = ethers.utils.parseEther("100");
         amountBDesired = ethers.utils.parseEther("100");
         amountAMin = ethers.utils.parseEther("90");
@@ -198,11 +195,9 @@ describe("LiquidityWrapper", function () {
         to = deployer.address;
         deadline = Math.floor(Date.now() / 1000) + 3600;
 
-        // Минт токенов для тестов
         await tokenA.mint(deployer.address, amountADesired.mul(2));
         await tokenB.mint(deployer.address, amountBDesired.mul(2));
 
-        // Approve токенов для роутера
         await tokenA.approve(uniswapRouter.address, amountADesired.mul(2));
         await tokenB.approve(uniswapRouter.address, amountBDesired.mul(2));
     });
