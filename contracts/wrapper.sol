@@ -16,11 +16,30 @@ contract LiquidityWrapper is Ownable {
     IERC20 public usdt;
     IERC20 public token;
 
-    bytes32 public constant PYTH_PRICE_ID = bytes32("BTC/USD"); // This should be the correct Pyth price feed ID
+    // Pyth Network price feed ID for BTC/USD
+    bytes32 public constant PYTH_PRICE_ID = 0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43;
+
+    // Maximum price deviation allowed between oracles (2%)
+    uint256 public constant MAX_PRICE_DEVIATION = 2;
+    
+    // Maximum slippage allowed for swaps and liquidity addition (5%)
+    uint256 public constant MAX_SLIPPAGE = 5;
 
     event ChainlinkOracleUpdated(address indexed oldOracle, address indexed newOracle);
     event PythOracleUpdated(address indexed oldOracle, address indexed newOracle);
-    event LiquidityAdded(address indexed user, uint256 usdtAmount, uint256 tokenAmount);
+    event LiquidityAdded(
+        address indexed user,
+        uint256 usdtAmount,
+        uint256 tokenAmount,
+        uint256 liquidityReceived
+    );
+    event SwapExecuted(
+        address indexed user,
+        address indexed tokenIn,
+        address indexed tokenOut,
+        uint256 amountIn,
+        uint256 amountOut
+    );
 
     constructor(
         address _uniswapRouter,
@@ -58,24 +77,39 @@ contract LiquidityWrapper is Ownable {
     }
 
     function getChainlinkPrice() public view returns (uint256) {
-        (, int256 price,,,) = chainlinkOracle.latestRoundData();
+        (
+            uint80 roundId,
+            int256 price,
+            ,
+            uint256 updatedAt,
+            uint80 answeredInRound
+        ) = chainlinkOracle.latestRoundData();
+        
         require(price > 0, "Invalid Chainlink price");
+        require(answeredInRound >= roundId, "Chainlink stale price");
+        require(block.timestamp - updatedAt <= 60 minutes, "Chainlink price too old");
+        
         return uint256(price);
     }
 
     function getPythPrice() public view returns (uint256) {
-        PythStructs.Price memory pythPrice = pythOracle.getPriceUnsafe(PYTH_PRICE_ID);
+        PythStructs.Price memory pythPrice = pythOracle.getPriceNoOlderThan(PYTH_PRICE_ID, 60);
         require(pythPrice.price > 0, "Invalid Pyth price");
+        
+        // Convert confidence and price to uint256 for comparison
+        uint256 priceAbs = pythPrice.price >= 0 ? uint256(uint64(pythPrice.price)) : uint256(uint64(-pythPrice.price));
+        uint256 confAbs = uint256(uint64(pythPrice.conf));
+        require(confAbs <= priceAbs / 100, "Pyth price confidence too high");
         
         // Convert price to same decimals as Chainlink (8 decimals)
         if (pythPrice.expo < -8) {
             uint256 scale = uint256(uint32(-8 - pythPrice.expo));
-            return uint256(uint64(pythPrice.price)) * (10**scale);
+            return priceAbs * (10**scale);
         } else if (pythPrice.expo > -8) {
             uint256 scale = uint256(uint32(pythPrice.expo + 8));
-            return uint256(uint64(pythPrice.price)) / (10**scale);
+            return priceAbs / (10**scale);
         }
-        return uint256(uint64(pythPrice.price));
+        return priceAbs;
     }
 
     function getAggregatedPrice() public view returns (uint256) {
@@ -85,8 +119,15 @@ contract LiquidityWrapper is Ownable {
         // Both oracles must return valid prices
         require(chainlinkPrice > 0 && pythPrice > 0, "Invalid oracle prices");
         
-        // Return average of both prices
-        return (chainlinkPrice + pythPrice) / 2;
+        // Check price deviation between oracles
+        uint256 maxPrice = chainlinkPrice > pythPrice ? chainlinkPrice : pythPrice;
+        uint256 minPrice = chainlinkPrice > pythPrice ? pythPrice : chainlinkPrice;
+        uint256 deviation = ((maxPrice - minPrice) * 100) / minPrice;
+        
+        require(deviation <= MAX_PRICE_DEVIATION, "Price deviation too high");
+        
+        // Return weighted average (Chainlink has higher weight as it's typically more reliable)
+        return (chainlinkPrice * 60 + pythPrice * 40) / 100;
     }
 
     function addLiquidityWithUSDT(uint256 usdtAmount) external {
@@ -94,52 +135,43 @@ contract LiquidityWrapper is Ownable {
         require(usdt.balanceOf(msg.sender) >= usdtAmount, "Insufficient USDT balance");
         require(usdt.allowance(msg.sender, address(this)) >= usdtAmount, "Insufficient USDT allowance");
 
+        // Get current price and calculate expected token amount
+        uint256 tokenPrice = getAggregatedPrice();
+        require(tokenPrice > 0, "Invalid token price");
+        
+        // Calculate token amount based on price (considering 8 decimals of price feed)
+        uint256 expectedTokenAmount = (usdtAmount * 1e8) / tokenPrice;
+        uint256 minTokenAmount = expectedTokenAmount * (100 - MAX_SLIPPAGE) / 100;
+
         // Transfer USDT to this contract
         usdt.transferFrom(msg.sender, address(this), usdtAmount);
 
-        // Calculate token amount based on price
-        uint256 tokenPrice = getAggregatedPrice(); 
-        uint256 tokenAmount = (usdtAmount * 1e8) / tokenPrice;
-
-        uint256 halfUSDT = usdtAmount / 2;
-        uint256 minTokenAmount = tokenAmount * 95 / 100; // 5% slippage protection
+        // Split USDT amount for swap and liquidity
+        uint256 swapAmount = usdtAmount / 2;
+        uint256 liquidityAmount = usdtAmount - swapAmount;
 
         // Swap half USDT for tokens
-        swapUSDTForToken(halfUSDT, minTokenAmount / 2); // Since we're only swapping half USDT
+        uint256 minSwapTokenAmount = minTokenAmount / 2;
+        uint256 receivedTokens = swapExactUSDTForToken(swapAmount, minSwapTokenAmount);
 
-        // Approve router to spend tokens
-        usdt.approve(address(uniswapRouter), halfUSDT);
-        token.approve(address(uniswapRouter), minTokenAmount / 2);
-
-        // Add liquidity
-        uniswapRouter.addLiquidity(
-            address(usdt),
-            address(token),
-            halfUSDT,
-            minTokenAmount / 2,
-            halfUSDT * 95 / 100,  // 5% slippage protection
-            (minTokenAmount / 2) * 95 / 100,  // 5% slippage protection
-            msg.sender,
-            block.timestamp
+        // Add liquidity with the remaining USDT and received tokens
+        (uint256 usedUSDT, uint256 usedTokens, uint256 liquidity) = addLiquidityInternal(
+            liquidityAmount,
+            receivedTokens,
+            liquidityAmount * (100 - MAX_SLIPPAGE) / 100,
+            receivedTokens * (100 - MAX_SLIPPAGE) / 100
         );
-        
-        emit LiquidityAdded(msg.sender, halfUSDT, minTokenAmount / 2);
-    }
 
-    function swapUSDTForToken(uint256 usdtAmount, uint256 minTokenAmount) internal {
-        address[] memory path = new address[](2);
-        path[0] = address(usdt);
-        path[1] = address(token);
+        // Refund any unused tokens
+        if (liquidityAmount > usedUSDT) {
+            usdt.transfer(msg.sender, liquidityAmount - usedUSDT);
+        }
+        if (receivedTokens > usedTokens) {
+            token.transfer(msg.sender, receivedTokens - usedTokens);
+        }
 
-        usdt.approve(address(uniswapRouter), usdtAmount);
-
-        uniswapRouter.swapExactTokensForTokens(
-            usdtAmount,
-            minTokenAmount,
-            path,
-            address(this),
-            block.timestamp
-        );
+        emit LiquidityAdded(msg.sender, usedUSDT, usedTokens, liquidity);
+        emit SwapExecuted(msg.sender, address(usdt), address(token), swapAmount, receivedTokens);
     }
 
     function addLiquidityWithBothTokens(uint256 usdtAmount, uint256 tokenAmount) external {
@@ -149,38 +181,97 @@ contract LiquidityWrapper is Ownable {
         require(usdt.allowance(msg.sender, address(this)) >= usdtAmount, "Insufficient USDT allowance");
         require(token.allowance(msg.sender, address(this)) >= tokenAmount, "Insufficient token allowance");
 
-        // Get current price to verify amounts ratio
-        uint256 btcPrice = getAggregatedPrice();
-        uint256 expectedTokenAmount = (usdtAmount * 1e8) / btcPrice;
+        // Verify price and token ratio
+        uint256 tokenPrice = getAggregatedPrice();
+        require(tokenPrice > 0, "Invalid token price");
         
-        // Allow 2% deviation from the expected ratio
-        uint256 minExpectedAmount = expectedTokenAmount * 98 / 100;
-        uint256 maxExpectedAmount = expectedTokenAmount * 102 / 100;
+        // Calculate expected token amount based on USDT amount and current price
+        uint256 expectedTokenAmount = (usdtAmount * 1e8) / tokenPrice;
+        
+        // Calculate acceptable token amount range based on MAX_PRICE_DEVIATION
+        uint256 minExpectedTokens = expectedTokenAmount * (100 - MAX_PRICE_DEVIATION) / 100;
+        uint256 maxExpectedTokens = expectedTokenAmount * (100 + MAX_PRICE_DEVIATION) / 100;
+        
         require(
-            tokenAmount >= minExpectedAmount && tokenAmount <= maxExpectedAmount,
-            "Invalid token ratio"
+            tokenAmount >= minExpectedTokens && tokenAmount <= maxExpectedTokens,
+            "Token ratio outside acceptable range"
         );
 
         // Transfer tokens to this contract
         usdt.transferFrom(msg.sender, address(this), usdtAmount);
         token.transferFrom(msg.sender, address(this), tokenAmount);
 
-        // Approve router
+        // Add liquidity
+        (uint256 usedUSDT, uint256 usedTokens, uint256 liquidity) = addLiquidityInternal(
+            usdtAmount,
+            tokenAmount,
+            usdtAmount * (100 - MAX_SLIPPAGE) / 100,
+            tokenAmount * (100 - MAX_SLIPPAGE) / 100
+        );
+
+        // Refund any unused tokens
+        if (usdtAmount > usedUSDT) {
+            usdt.transfer(msg.sender, usdtAmount - usedUSDT);
+        }
+        if (tokenAmount > usedTokens) {
+            token.transfer(msg.sender, tokenAmount - usedTokens);
+        }
+
+        emit LiquidityAdded(msg.sender, usedUSDT, usedTokens, liquidity);
+    }
+
+    function swapExactUSDTForToken(uint256 usdtAmount, uint256 minTokenAmount) internal returns (uint256) {
+        address[] memory path = new address[](2);
+        path[0] = address(usdt);
+        path[1] = address(token);
+
+        usdt.approve(address(uniswapRouter), usdtAmount);
+
+        uint256[] memory amounts = uniswapRouter.swapExactTokensForTokens(
+            usdtAmount,
+            minTokenAmount,
+            path,
+            address(this),
+            block.timestamp
+        );
+
+        return amounts[1]; // Return the amount of tokens received
+    }
+
+    function addLiquidityInternal(
+        uint256 usdtAmount,
+        uint256 tokenAmount,
+        uint256 minUSDT,
+        uint256 minTokens
+    ) internal returns (uint256 usedUSDT, uint256 usedTokens, uint256 liquidity) {
+        // Approve router to spend tokens
         usdt.approve(address(uniswapRouter), usdtAmount);
         token.approve(address(uniswapRouter), tokenAmount);
 
         // Add liquidity
-        uniswapRouter.addLiquidity(
+        (usedUSDT, usedTokens, liquidity) = uniswapRouter.addLiquidity(
             address(usdt),
             address(token),
             usdtAmount,
             tokenAmount,
-            usdtAmount * 95 / 100,  // Allow 5% slippage
-            tokenAmount * 95 / 100,  // Allow 5% slippage
+            minUSDT,
+            minTokens,
             msg.sender,
             block.timestamp
         );
+
+        require(liquidity > 0, "No liquidity received");
+        return (usedUSDT, usedTokens, liquidity);
+    }
+
+    function updatePythPrice(bytes[] calldata priceUpdateData) external payable {
+        uint fee = pythOracle.getUpdateFee(priceUpdateData);
+        require(msg.value >= fee, "Insufficient fee for price update");
         
-        emit LiquidityAdded(msg.sender, usdtAmount, tokenAmount);
+        pythOracle.updatePriceFeeds{value: fee}(priceUpdateData);
+        
+        if (msg.value > fee) {
+            payable(msg.sender).transfer(msg.value - fee);
+        }
     }
 }

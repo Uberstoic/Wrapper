@@ -405,11 +405,11 @@ describe("LiquidityWrapper", function () {
 
     it("Should revert when adding liquidity with incorrect token ratio", async function () {
       const usdtAmount = ethers.utils.parseEther("30000");
-      const incorrectTokenAmount = ethers.utils.parseEther("0.5"); // Should be 1.0
-      
+      const tokenAmount = ethers.utils.parseEther("0.5"); // Too low amount for the price
+
       await expect(
-        wrapper.connect(user).addLiquidityWithBothTokens(usdtAmount, incorrectTokenAmount)
-      ).to.be.revertedWith("Invalid token ratio");
+        wrapper.connect(user).addLiquidityWithBothTokens(usdtAmount, tokenAmount)
+      ).to.be.revertedWith("Token ratio outside acceptable range");
     });
 
     it("Should revert when tokens not approved", async function () {
@@ -506,7 +506,7 @@ describe("LiquidityWrapper", function () {
 
       await expect(
         wrapper.connect(user).addLiquidityWithBothTokens(usdtAmount, tokenAmount)
-      ).to.be.revertedWith("Invalid token ratio");
+      ).to.be.revertedWith("Token ratio outside acceptable range");
     });
   });
 

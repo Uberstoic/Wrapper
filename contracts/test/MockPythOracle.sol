@@ -5,81 +5,78 @@ import "@pythnetwork/pyth-sdk-solidity/IPyth.sol";
 import "@pythnetwork/pyth-sdk-solidity/PythStructs.sol";
 
 contract MockPythOracle is IPyth {
-    int64 private _price;
-    
-    constructor() {
-        _price = 30000 * 10**8; // Initial price $30,000 with 8 decimals
+    int64 private price = 96000 * 10**8; // $96,000 with 8 decimals
+    uint64 private conf = 0;
+    int32 private expo = -8;
+    uint64 private publishTime = uint64(block.timestamp);
+
+    function getPrice(bytes32 priceId) external view returns (PythStructs.Price memory) {
+        return PythStructs.Price(
+            price,      // price
+            conf,       // conf
+            expo,       // expo
+            publishTime // publishTime
+        );
+    }
+
+    function getPriceUnsafe(bytes32 priceId) external view returns (PythStructs.Price memory) {
+        return this.getPrice(priceId);
     }
 
     function setPrice(int64 newPrice) external {
-        _price = newPrice;
-    }
-
-    function getPriceUnsafe(bytes32) external view returns (PythStructs.Price memory) {
-        return PythStructs.Price({
-            price: _price,
-            conf: 0,
-            expo: -8,
-            publishTime: uint64(block.timestamp)
-        });
-    }
-
-    function getEmaPriceUnsafe(bytes32) external view returns (PythStructs.Price memory) {
-        return PythStructs.Price({
-            price: _price,
-            conf: 0,
-            expo: -8,
-            publishTime: uint64(block.timestamp)
-        });
-    }
-
-    function getPrice(bytes32) external pure returns (PythStructs.Price memory) {
-        revert("Not implemented");
-    }
-
-    function getEmaPrice(bytes32) external pure returns (PythStructs.Price memory) {
-        revert("Not implemented");
-    }
-
-    function getPriceNoOlderThan(bytes32, uint) external pure returns (PythStructs.Price memory) {
-        revert("Not implemented");
-    }
-
-    function getEmaPriceNoOlderThan(bytes32, uint) external pure returns (PythStructs.Price memory) {
-        revert("Not implemented");
-    }
-
-    function getPriceUpdateData(bytes32) external pure returns (bytes memory) {
-        revert("Not implemented");
-    }
-
-    function getUpdateFee(bytes[] memory) external pure returns (uint) {
-        return 0;
-    }
-
-    function updatePriceFeeds(bytes[] memory) external payable {
-        // Mock implementation - do nothing
-    }
-
-    function updatePriceFeedsIfNecessary(bytes[] memory, bytes32[] memory, uint64[] memory) external payable {
-        // Mock implementation - do nothing
-    }
-
-    function parsePriceFeedUpdates(bytes[] memory, bytes32[] memory, uint64, uint64) external payable returns (PythStructs.PriceFeed[] memory) {
-        PythStructs.PriceFeed[] memory feeds = new PythStructs.PriceFeed[](0);
-        return feeds;
-    }
-
-    function parsePriceFeedUpdatesUnique(
-        bytes[] calldata updateData,
-        bytes32[] calldata priceIds,
-        uint64 minPublishTime,
-        uint64 maxPublishTime
-    ) external payable returns (PythStructs.PriceFeed[] memory) {
-        return new PythStructs.PriceFeed[](0);
+        price = newPrice;
+        publishTime = uint64(block.timestamp);
     }
 
     function getValidTimePeriod() external pure returns (uint) {
-        return 3600;
+        return 60; // 60 seconds validity period
+    }
+
+    function getUpdateFee(bytes[] calldata) external pure returns (uint) {
+        return 0;
+    }
+
+    function updatePriceFeeds(bytes[] calldata) external payable {
+        // Mock implementation - do nothing
+    }
+
+    function updatePriceFeedsIfNecessary(
+        bytes[] calldata,
+        bytes32[] calldata,
+        uint64[] calldata
+    ) external payable {
+        // Mock implementation - do nothing
+    }
+
+    function parsePriceFeedUpdates(
+        bytes[] calldata,
+        bytes32[] calldata,
+        uint64,
+        uint64
+    ) external payable returns (PythStructs.PriceFeed[] memory) {
+        // Return empty array
+        return new PythStructs.PriceFeed[](0);
+    }
+
+    function parsePriceFeedUpdatesUnique(
+        bytes[] calldata,
+        bytes32[] calldata,
+        uint64,
+        uint64
+    ) external payable returns (PythStructs.PriceFeed[] memory) {
+        // Return empty array
+        return new PythStructs.PriceFeed[](0);
+    }
+
+    function getEmaPriceUnsafe(bytes32 priceId) external view returns (PythStructs.Price memory) {
+        return this.getPrice(priceId);
+    }
+
+    function getEmaPriceNoOlderThan(bytes32 priceId, uint age) external view returns (PythStructs.Price memory) {
+        return this.getPrice(priceId);
+    }
+
+    function getPriceNoOlderThan(bytes32 priceId, uint age) external view returns (PythStructs.Price memory) {
+        return this.getPrice(priceId);
     }
 }
