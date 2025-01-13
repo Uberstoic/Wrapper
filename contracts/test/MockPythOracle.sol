@@ -11,12 +11,7 @@ contract MockPythOracle is IPyth {
     uint64 private publishTime = uint64(block.timestamp);
 
     function getPrice(bytes32 priceId) external view returns (PythStructs.Price memory) {
-        return PythStructs.Price(
-            price,      // price
-            conf,       // conf
-            expo,       // expo
-            publishTime // publishTime
-        );
+        return PythStructs.Price(price, conf, expo, publishTime);
     }
 
     function getPriceUnsafe(bytes32 priceId) external view returns (PythStructs.Price memory) {
@@ -29,7 +24,7 @@ contract MockPythOracle is IPyth {
     }
 
     function getValidTimePeriod() external pure returns (uint) {
-        return 60; // 60 seconds validity period
+        return 3600; // 60 seconds validity period
     }
 
     function getUpdateFee(bytes[] calldata) external pure returns (uint) {

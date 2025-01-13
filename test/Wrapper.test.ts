@@ -1,5 +1,6 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
+import { BigNumber } from "ethers";
 import * as dotenv from "dotenv";
 dotenv.config();
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
@@ -20,6 +21,10 @@ import {
 const provider = new ethers.providers.JsonRpcProvider(
   `https://eth-sepolia.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`
 );
+
+if (!process.env.ALCHEMY_API_KEY || !process.env.PRIVATE_KEY) {
+  throw new Error("Missing required environment variables: ALCHEMY_API_KEY or PRIVATE_KEY");
+}
 
 describe("LiquidityWrapper", function () {
   let wrapper: LiquidityWrapper;
