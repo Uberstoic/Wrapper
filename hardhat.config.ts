@@ -1,5 +1,5 @@
 import { HardhatUserConfig } from "hardhat/config";
-import "@nomiclabs/hardhat-waffle";
+import "@nomicfoundation/hardhat-toolbox";
 import "@nomiclabs/hardhat-ethers";
 import "@typechain/hardhat";
 import "hardhat-gas-reporter";
@@ -10,19 +10,19 @@ import "./tasks/wrapper-tasks";
 
 dotenv.config();
 
-// Contract addresses
-const contractConfig = {
+export const contractConfig = {
   mainnet: {
     uniswapRouter: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
-    chainlinkBtcUsd: "0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c", // BTC/USD Price Feed
-    pythMainnet: "0x4305FB66699C3B2702D4d05CF36551390A4c69C6",  // Pyth Network Contract
-    usdt: "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+    chainlinkBtcUsd: "0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c", 
+    pythMainnet: "0x4305FB66699C3B2702D4d05CF36551390A4c69C6",  
+    usdt: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    wbtc: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599"  
   },
   sepolia: {
     uniswapRouter: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
-    chainlinkBtcUsd: "0x1b44F3514812d835EB1BDB0acB33d3fA3351Ee43", // BTC/USD Price Feed on Sepolia
-    pythMainnet: "0x2880aB155794e7179c9eE2E38200202908C17B43",  // Pyth Network Contract on Sepolia
-    usdt: "0x7169D38820dfd117C3FA1f22a697dBA58d90BA06"  // Mock USDT on Sepolia
+    chainlinkBtcUsd: "0x1b44F3514812d835EB1BDB0acB33d3fA3351Ee43",
+    pythMainnet: "0x2880aB155794e7179c9eE2E38200202908C17B43",
+    usdt: "0x7169D38820dfd117C3FA1f22a697dBA58d90BA06"
   }
 };
 
@@ -39,14 +39,18 @@ const config: HardhatUserConfig = {
   networks: {
     hardhat: {
       forking: {
-        url: `https://eth-mainnet.alchemyapi.io/v2/${process.env.ALCHEMY_API_KEY}`
-        // Using latest block
+        url: `https://eth-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,  // Using a different API key
+        enabled: true
       },
       mining: {
         auto: true,
         interval: 0
       },
       gasPrice: "auto"
+    },
+    localhost: {
+      url: "http://127.0.0.1:8545",
+      chainId: 31337
     },
     sepolia: {
       url: `https://eth-sepolia.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
@@ -55,8 +59,11 @@ const config: HardhatUserConfig = {
   },
   etherscan: {
     apiKey: process.env.ETHERSCAN_API_KEY
+  },
+  gasReporter: {
+    enabled: true,
+    currency: "USD",
   }
 };
 
 export default config;
-export { contractConfig };

@@ -26,31 +26,30 @@ The Wrapper is a DeFi protocol that enables users to:
 - Chainlink Price Feeds
 - Pyth Network Oracle
 
-## Development
+## Quick Start
 
+Follow these steps to run the project locally:
+
+1. Start a local Hardhat node with Mainnet fork:
 ```bash
-# Compile contracts
-npx hardhat compile
+npx hardhat node --fork https://eth-mainnet.g.alchemy.com/v2/ALXQXTVc8DCrh8ZMnu2F_7Foac_oWBPk
+```
 
-# Run tests
-npx hardhat test
+2. Open a new terminal (Git Bash recommended) and navigate to the project directory
 
-# Fork
-npx hardhat node
-
-# Deploy
+3. Deploy contracts and update oracles:
+```bash
+# Deploy contracts
 npx hardhat run scripts/deploy.ts --network localhost
 
-# Get Price
+# Update Pyth oracle price
+npx hardhat update-pyth --network localhost
+
+# Get current prices from all oracles
 npx hardhat get-price --network localhost
-
-# Check Balances
-npx hardhat check-balances --network localhost
-
-# Liquidity adding
-npx hardhat add-liquidity-usdt --amount 1000 --network localhost
-
 ```
+
+Note: Make sure to run these commands in the order specified above, as the deployment needs to complete before running other commands.
 
 ## Security
 

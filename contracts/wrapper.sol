@@ -7,11 +7,13 @@ import "@pythnetwork/pyth-sdk-solidity/IPyth.sol";
 import "@pythnetwork/pyth-sdk-solidity/PythStructs.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import './interfaces/IUniswapTWAPOracle.sol';
 
 contract LiquidityWrapper is Ownable {
     IUniswapV2Router02 public uniswapRouter;
     AggregatorV3Interface public chainlinkOracle;
     IPyth public pythOracle;
+    IUniswapTWAPOracle public twapOracle;
 
     IERC20 public usdt;
     IERC20 public token;
@@ -27,6 +29,7 @@ contract LiquidityWrapper is Ownable {
 
     event ChainlinkOracleUpdated(address indexed oldOracle, address indexed newOracle);
     event PythOracleUpdated(address indexed oldOracle, address indexed newOracle);
+    event TwapOracleUpdated(address indexed oldOracle, address indexed newOracle);
     event LiquidityAdded(
         address indexed user,
         uint256 usdtAmount,
@@ -45,18 +48,21 @@ contract LiquidityWrapper is Ownable {
         address _uniswapRouter,
         address _chainlinkOracle,
         address _pythOracle,
+        address _twapOracle,
         address _tokenAddress,
         address _usdtAddress
     ) Ownable(msg.sender) {
         require(_uniswapRouter != address(0), "Invalid router address");
         require(_chainlinkOracle != address(0), "Invalid Chainlink oracle address");
         require(_pythOracle != address(0), "Invalid Pyth oracle address");
+        require(_twapOracle != address(0), "Invalid TWAP oracle address");
         require(_tokenAddress != address(0), "Invalid token address");
         require(_usdtAddress != address(0), "Invalid USDT address");
 
         uniswapRouter = IUniswapV2Router02(_uniswapRouter);
         chainlinkOracle = AggregatorV3Interface(_chainlinkOracle);
         pythOracle = IPyth(_pythOracle);
+        twapOracle = IUniswapTWAPOracle(_twapOracle);
 
         token = IERC20(_tokenAddress);
         usdt = IERC20(_usdtAddress);
@@ -76,6 +82,13 @@ contract LiquidityWrapper is Ownable {
         emit PythOracleUpdated(oldOracle, _newOracle);
     }
 
+    function setTwapOracle(address _newOracle) external onlyOwner {
+        require(_newOracle != address(0), "Invalid oracle address");
+        address oldOracle = address(twapOracle);
+        twapOracle = IUniswapTWAPOracle(_newOracle);
+        emit TwapOracleUpdated(oldOracle, _newOracle);
+    }
+
     function getChainlinkPrice() public view returns (uint256) {
         (
             uint80 roundId,
@@ -93,7 +106,7 @@ contract LiquidityWrapper is Ownable {
     }
 
     function getPythPrice() public view returns (uint256) {
-        PythStructs.Price memory pythPrice = pythOracle.getPriceNoOlderThan(PYTH_PRICE_ID, 60);
+        PythStructs.Price memory pythPrice = pythOracle.getPriceNoOlderThan(PYTH_PRICE_ID, 3600);
         require(pythPrice.price > 0, "Invalid Pyth price");
         
         // Convert confidence and price to uint256 for comparison
@@ -112,22 +125,37 @@ contract LiquidityWrapper is Ownable {
         return priceAbs;
     }
 
+    function getTwapPrice() public view returns (uint256) {
+        uint256 price = twapOracle.getPrice();
+        require(price > 0, "Invalid TWAP price");
+        return price;
+    }
+
     function getAggregatedPrice() public view returns (uint256) {
         uint256 chainlinkPrice = getChainlinkPrice();
         uint256 pythPrice = getPythPrice();
+        uint256 twapPrice = getTwapPrice();
         
-        // Both oracles must return valid prices
-        require(chainlinkPrice > 0 && pythPrice > 0, "Invalid oracle prices");
+        // All oracles must return valid prices
+        require(chainlinkPrice > 0 && pythPrice > 0 && twapPrice > 0, "Invalid oracle prices");
         
         // Check price deviation between oracles
-        uint256 maxPrice = chainlinkPrice > pythPrice ? chainlinkPrice : pythPrice;
-        uint256 minPrice = chainlinkPrice > pythPrice ? pythPrice : chainlinkPrice;
+        uint256 maxPrice = max3(chainlinkPrice, pythPrice, twapPrice);
+        uint256 minPrice = min3(chainlinkPrice, pythPrice, twapPrice);
         uint256 deviation = ((maxPrice - minPrice) * 100) / minPrice;
         
         require(deviation <= MAX_PRICE_DEVIATION, "Price deviation too high");
         
-        // Return weighted average (Chainlink has higher weight as it's typically more reliable)
-        return (chainlinkPrice * 60 + pythPrice * 40) / 100;
+        // Return weighted average (40% Chainlink, 30% Pyth, 30% TWAP)
+        return (chainlinkPrice * 40 + pythPrice * 30 + twapPrice * 30) / 100;
+    }
+
+    function max3(uint256 a, uint256 b, uint256 c) internal pure returns (uint256) {
+        return a > b ? (a > c ? a : c) : (b > c ? b : c);
+    }
+
+    function min3(uint256 a, uint256 b, uint256 c) internal pure returns (uint256) {
+        return a < b ? (a < c ? a : c) : (b < c ? b : c);
     }
 
     function addLiquidityWithUSDT(uint256 usdtAmount) external {

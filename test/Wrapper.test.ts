@@ -579,6 +579,7 @@ describe("LiquidityWrapper", function () {
         )) as MockPythOracle__factory;
         oracle = await MockPythOracleFactory.deploy();
         await oracle.deployed();
+        await oracle.setPrice(ethers.BigNumber.from(30000).mul(ethers.BigNumber.from(10).pow(8)));
     });
 
     it("should return the initial price", async function () {
@@ -667,6 +668,7 @@ describe("LiquidityWrapper", function () {
         const MockChainlinkOracle = await ethers.getContractFactory("MockChainlinkOracle");
         oracle = await MockChainlinkOracle.deploy();
         await oracle.deployed();
+        await oracle.setPrice(ethers.BigNumber.from(30000).mul(ethers.BigNumber.from(10).pow(8)));
     });
 
     it("should have an initial price of $30,000 with 8 decimals", async function () {
@@ -689,9 +691,9 @@ describe("LiquidityWrapper", function () {
         expect(decimals).to.equal(8);
     });
 
-    it("should return description 'BTC / USD'", async function () {
+    it("should return description 'BTC/USD'", async function () {
         const description = await oracle.description();
-        expect(description).to.equal("BTC / USD");
+        expect(description).to.equal("BTC/USD");
     });
 
     it("should return version 1", async function () {
