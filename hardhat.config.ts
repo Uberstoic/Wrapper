@@ -1,10 +1,9 @@
 import { HardhatUserConfig } from "hardhat/config";
-import "@nomicfoundation/hardhat-toolbox";
+import "@nomiclabs/hardhat-waffle";
 import "@nomiclabs/hardhat-ethers";
 import "@typechain/hardhat";
 import "hardhat-gas-reporter";
 import "solidity-coverage";
-import "@nomicfoundation/hardhat-verify";
 import * as dotenv from "dotenv";
 import "./tasks/wrapper-tasks";
 
@@ -39,7 +38,7 @@ const config: HardhatUserConfig = {
   networks: {
     hardhat: {
       forking: {
-        url: `https://eth-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,  // Using a different API key
+        url: `https://eth-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
         enabled: true
       },
       mining: {
@@ -49,21 +48,17 @@ const config: HardhatUserConfig = {
       gasPrice: "auto"
     },
     localhost: {
-      url: "http://127.0.0.1:8545",
-      chainId: 31337
-    },
-    sepolia: {
-      url: `https://eth-sepolia.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
-      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : []
+      url: "http://127.0.0.1:8545"
     }
-  },
-  etherscan: {
-    apiKey: process.env.ETHERSCAN_API_KEY
   },
   gasReporter: {
     enabled: true,
     currency: "USD",
-  }
+  },
+  typechain: {
+    outDir: "typechain-types",
+    target: "ethers-v5",
+  },
 };
 
 export default config;

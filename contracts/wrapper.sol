@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import './interfaces/IUniswapV2Router02.sol';
-import '@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol';
+import '@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol';
 import "@pythnetwork/pyth-sdk-solidity/IPyth.sol";
 import "@pythnetwork/pyth-sdk-solidity/PythStructs.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -51,7 +51,7 @@ contract LiquidityWrapper is Ownable {
         // address _twapOracle,
         address _tokenAddress,
         address _usdtAddress
-    ) Ownable(msg.sender) {
+    ) Ownable() {
         require(_uniswapRouter != address(0), "Invalid router address");
         require(_chainlinkOracle != address(0), "Invalid Chainlink oracle address");
         require(_pythOracle != address(0), "Invalid Pyth oracle address");
