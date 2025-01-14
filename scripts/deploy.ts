@@ -145,7 +145,7 @@ async function createUniswapPair(
 ): Promise<string> {
   console.log("\nCreating Uniswap pair...");
   const factory = await ethers.getContractAt(
-    "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol:IUniswapV2Factory",
+    "contracts/interfaces/IUniswapV2Factory.sol:IUniswapV2Factory",
     factoryAddress
   );
   
@@ -240,7 +240,7 @@ async function addInitialLiquidity(
     
     // Get pair address and check reserves
     const factory = await ethers.getContractAt(
-      "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol:IUniswapV2Factory",
+      "contracts/interfaces/IUniswapV2Factory.sol:IUniswapV2Factory",
       NETWORK_CONFIG[network.name].uniswapFactory
     );
     const pairAddress = await factory.getPair(token.address, usdt.address);
@@ -281,7 +281,7 @@ async function initializeTokenAndRouter(
 
   // Check if liquidity already exists
   const factory = await ethers.getContractAt(
-    "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol:IUniswapV2Factory",
+    "contracts/interfaces/IUniswapV2Factory.sol:IUniswapV2Factory",
     config.uniswapFactory
   );
   const pairAddress = await factory.getPair(token.address, usdt.address);
@@ -364,14 +364,14 @@ async function main() {
     );
   }
 
-  // Deploy TWAP Oracle
-  console.log("\nDeploying UniswapTWAPOracle...");
-  const twapOracleFactory = await ethers.getContractFactory("UniswapTWAPOracle");
-  const twapOracle = await deployContract("UniswapTWAPOracle", twapOracleFactory, [
-    config.uniswapFactory,
-    token0Address,
-    token1Address
-  ]);
+  // // Deploy TWAP Oracle
+  // console.log("\nDeploying UniswapTWAPOracle...");
+  // const twapOracleFactory = await ethers.getContractFactory("UniswapTWAPOracle");
+  // const twapOracle = await deployContract("UniswapTWAPOracle", twapOracleFactory, [
+  //   config.uniswapFactory,
+  //   token0Address,
+  //   token1Address
+  // ]);
 
   // Deploy LiquidityWrapper
   console.log("\nDeploying LiquidityWrapper...");
@@ -380,7 +380,7 @@ async function main() {
     config.uniswapRouter,
     config.chainlinkBtcUsd,
     config.pythMainnet,
-    twapOracle.address,
+    // twapOracle.address,
     tokenAddress,
     usdtAddress
   ]);
@@ -405,7 +405,7 @@ async function main() {
     token: token?.address || config.usdtMainnet,
     usdt: usdt.address,
     uniswapPair: pairAddress,
-    twapOracle: twapOracle.address,
+    // twapOracle: twapOracle.address,
     wrapper: wrapper.address
   };
 

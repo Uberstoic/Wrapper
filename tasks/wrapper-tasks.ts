@@ -1,5 +1,5 @@
 import { task } from "hardhat/config";
-import { LiquidityWrapper, MockERC20, UniswapTWAPOracle, IPyth } from "../typechain-types";
+import { LiquidityWrapper, MockERC20, IPyth } from "../typechain-types";
 import { HardhatRuntimeEnvironment } from "hardhat/types";
 import { contractConfig } from "../hardhat.config";
 import axios from "axios";
@@ -7,13 +7,13 @@ import axios from "axios";
 // Helper function to get deployed contracts
 async function getContracts(hre: HardhatRuntimeEnvironment) {
     try {
-        const deployments = require('../deployments/localhost_2025-01-13.json');
+        const deployments = require('../deployments/localhost_2025-01-14.json');
         const wrapper = await hre.ethers.getContractAt("LiquidityWrapper", deployments.wrapper) as LiquidityWrapper;
         const token = await hre.ethers.getContractAt("MockERC20", deployments.token) as MockERC20;
         const usdt = await hre.ethers.getContractAt("MockERC20", deployments.usdt) as MockERC20;
         const pythOracle = await hre.ethers.getContractAt("IPyth", contractConfig.mainnet.pythMainnet) as IPyth;
-        const twapOracle = await hre.ethers.getContractAt("UniswapTWAPOracle", deployments.twapOracle);
-        return { wrapper, token, usdt, pythOracle, twapOracle };
+        // const twapOracle = await hre.ethers.getContractAt("UniswapTWAPOracle", deployments.twapOracle);
+        return { wrapper, token, usdt, pythOracle};
     } catch (error) {
         console.error("Error: Deployments file not found or contracts not deployed. Please run 'npx hardhat run scripts/deploy.ts --network localhost' first");
         throw error;
@@ -39,7 +39,7 @@ task("get-price", "Get the current price of BTC from oracles")
     .setAction(async (taskArgs, hre) => {
         try {
             // Get deployment info
-            const deployments = require('../deployments/localhost_2025-01-13.json');
+            const deployments = require('../deployments/localhost_2025-01-14.json');
             
             // Get Chainlink price
             const chainlinkFeed = await hre.ethers.getContractAt(
