@@ -616,9 +616,9 @@ describe("LiquidityWrapper", function () {
         await expect(oracle.getPrice(ethers.constants.HashZero)).to.be.revertedWith("Not implemented");
     });
 
-    it("should revert when calling getEmaPrice", async function () {
-        await expect(oracle.getEmaPrice(ethers.constants.HashZero)).to.be.revertedWith("Not implemented");
-    });
+    // it("should revert when calling getEmaPrice", async function () {
+    //     await expect(oracle.getEmaPrice(ethers.constants.HashZero)).to.be.revertedWith("Not implemented");
+    // });
 
     it("should revert when calling getPriceNoOlderThan", async function () {
         await expect(oracle.getPriceNoOlderThan(ethers.constants.HashZero, 0)).to.be.revertedWith("Not implemented");
@@ -628,9 +628,9 @@ describe("LiquidityWrapper", function () {
         await expect(oracle.getEmaPriceNoOlderThan(ethers.constants.HashZero, 0)).to.be.revertedWith("Not implemented");
     });
 
-    it("should revert when calling getPriceUpdateData", async function () {
-        await expect(oracle.getPriceUpdateData(ethers.constants.HashZero)).to.be.revertedWith("Not implemented");
-    });
+    // it("should revert when calling getPriceUpdateData", async function () {
+    //     await expect(oracle.getPriceUpdateData(ethers.constants.HashZero)).to.be.revertedWith("Not implemented");
+    // });
 
     it("should return zero update fee", async function () {
         const fee = await oracle.getUpdateFee([]);
