@@ -1,9 +1,0 @@
-{
-  "network": "localhost",
-  "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-  "token": "0xC070A317F23E9A4e982e356485416251dd3Ed944",
-  "usdt": "0x6D39d71fF4ab56a4873febd34e1a3BDefc01b41e",
-  "uniswapPair": "0x90E6c447936bF174630D59FA09c496bb483db502",
-  "wrapper": "0x39826E09f8efb9df4C56Aeb9eEC0D2B8164d3B36",
-  "timestamp": "2025-01-14T00:07:19.010Z"
-}

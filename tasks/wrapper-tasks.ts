@@ -12,8 +12,8 @@ async function getContracts(hre: HardhatRuntimeEnvironment) {
         const token = await hre.ethers.getContractAt("MockERC20", deployments.token) as MockERC20;
         const usdt = await hre.ethers.getContractAt("MockERC20", deployments.usdt) as MockERC20;
         const pythOracle = await hre.ethers.getContractAt("IPyth", contractConfig.mainnet.pythMainnet) as IPyth;
-        // const twapOracle = await hre.ethers.getContractAt("UniswapTWAPOracle", deployments.twapOracle);
-        return { wrapper, token, usdt, pythOracle};
+        const twapPool = await hre.ethers.getContractAt("IUniswapV3Pool", deployments.twapPool);
+        return { wrapper, token, usdt, pythOracle, twapPool};
     } catch (error) {
         console.error("Error: Deployments file not found or contracts not deployed. Please run 'npx hardhat run scripts/deploy.ts --network localhost' first");
         throw error;
@@ -201,13 +201,21 @@ task("update-chainlink", "Update Chainlink price feed")
 //         console.log("TWAP oracle updated successfully!");
 //     });
 
-// // Get TWAP price
-// task("get-twap-price", "Get the current TWAP price")
-//     .setAction(async (taskArgs, hre) => {
-//         const { twapOracle } = await getContracts(hre);
-//         const price = await twapOracle.getPrice();
-//         console.log("\nTWAP Price:", hre.ethers.utils.formatUnits(price, 8));
-//     });
+
+task("get-twap-price", "Get the current TWAP price from Uniswap V3")
+    .addParam("interval", "Interval in seconds to calculate TWAP")
+    .setAction(async (taskArgs, hre) => {
+        try {
+            const { wrapper } = await getContracts(hre);
+            const interval = parseInt(taskArgs.interval);
+
+            console.log(`Fetching TWAP price for interval: ${interval} seconds...`);
+            const twapPrice = await wrapper.getTwapPrice(interval);
+            console.log(`TWAP Price: $${hre.ethers.utils.formatUnits(twapPrice, 8)}`);
+        } catch (error) {
+            console.error("Error getting TWAP price:", error);
+        }
+    });
 
 // Update Pyth price
 task("update-pyth", "Update Pyth price feed")

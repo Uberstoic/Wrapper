@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import './interfaces/IUniswapV2Router02.sol';
+import './interfaces/IUniswapV3Router.sol';
 import '@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol';
 import "@pythnetwork/pyth-sdk-solidity/IPyth.sol";
 import "@pythnetwork/pyth-sdk-solidity/PythStructs.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-// import './interfaces/IUniswapTWAPOracle.sol';
+import './interfaces/IUniswapV3Pool.sol';
+import './interfaces/IPositionManager.sol';
 
 contract LiquidityWrapper is Ownable {
-    IUniswapV2Router02 public uniswapRouter;
+    IUniswapV3Router public uniswapRouter;
     AggregatorV3Interface public chainlinkOracle;
+    INonfungiblePositionManager public positionManager;
     IPyth public pythOracle;
-    // IUniswapTWAPOracle public twapOracle;
+    IUniswapV3Pool public twapPool;
 
     IERC20 public usdt;
     IERC20 public token;
@@ -29,7 +31,7 @@ contract LiquidityWrapper is Ownable {
 
     event ChainlinkOracleUpdated(address indexed oldOracle, address indexed newOracle);
     event PythOracleUpdated(address indexed oldOracle, address indexed newOracle);
-    // event TwapOracleUpdated(address indexed oldOracle, address indexed newOracle);
+    event TwapPoolUpdated(address indexed oldPool, address indexed newPool);
     event LiquidityAdded(
         address indexed user,
         uint256 usdtAmount,
@@ -43,26 +45,32 @@ contract LiquidityWrapper is Ownable {
         uint256 amountIn,
         uint256 amountOut
     );
+    event LiquidityRemoved(
+        address indexed user,
+        uint256 tokenId,
+        uint256 usdtAmount,
+        uint256 tokenAmount
+    );
 
     constructor(
         address _uniswapRouter,
         address _chainlinkOracle,
         address _pythOracle,
-        // address _twapOracle,
+        address _twapPool,
         address _tokenAddress,
         address _usdtAddress
     ) Ownable() {
         require(_uniswapRouter != address(0), "Invalid router address");
         require(_chainlinkOracle != address(0), "Invalid Chainlink oracle address");
         require(_pythOracle != address(0), "Invalid Pyth oracle address");
-        // require(_twapOracle != address(0), "Invalid TWAP oracle address");
+        require(_twapPool != address(0), "Invalid TWAP pool address");
         require(_tokenAddress != address(0), "Invalid token address");
         require(_usdtAddress != address(0), "Invalid USDT address");
 
-        uniswapRouter = IUniswapV2Router02(_uniswapRouter);
+        uniswapRouter = IUniswapV3Router(_uniswapRouter);
         chainlinkOracle = AggregatorV3Interface(_chainlinkOracle);
         pythOracle = IPyth(_pythOracle);
-        // twapOracle = IUniswapTWAPOracle(_twapOracle);
+        twapPool = IUniswapV3Pool(_twapPool);
 
         token = IERC20(_tokenAddress);
         usdt = IERC20(_usdtAddress);
@@ -82,12 +90,84 @@ contract LiquidityWrapper is Ownable {
         emit PythOracleUpdated(oldOracle, _newOracle);
     }
 
-    // function setTwapOracle(address _newOracle) external onlyOwner {
-    //     require(_newOracle != address(0), "Invalid oracle address");
-    //     address oldOracle = address(twapOracle);
-    //     twapOracle = IUniswapTWAPOracle(_newOracle);
-    //     emit TwapOracleUpdated(oldOracle, _newOracle);
-    // }
+    function setTwapPool(address _newPool) external onlyOwner {
+        require(_newPool != address(0), "Invalid TWAP pool address");
+        address oldPool = address(twapPool);
+        twapPool = IUniswapV3Pool(_newPool);
+        emit TwapPoolUpdated(oldPool, _newPool);
+    }
+    
+    function getTwapPrice(uint32 interval) public view returns (uint256) {
+        require(interval > 0, "Interval must be greater than 0");
+
+        uint32[] memory secondsAgos = new uint32[](2);
+        secondsAgos[0] = interval;
+        secondsAgos[1] = 0;
+
+        (int56[] memory tickCumulatives, ) = twapPool.observe(secondsAgos);
+
+        int56 tickDifference = tickCumulatives[1] - tickCumulatives[0];
+        int24 averageTick = int24(tickDifference / int56(uint56(interval)));
+
+        return tickToPrice(averageTick);
+    }
+    function tickToPrice(int24 tick) public pure returns (uint256) {
+        int256 tick256 = int256(tick);
+        uint256 sqrtPriceX96 = uint256(2 ** 96) * 10**18 / uint256(2**uint256(tick256));
+        return (sqrtPriceX96 * sqrtPriceX96) / (2 ** 192);
+    }
+
+ function addLiquidity(
+        uint256 tokenAmount,
+        uint256 usdtAmount,
+        int24 tickLower,
+        int24 tickUpper
+    ) external onlyOwner {
+        require(tokenAmount > 0 && usdtAmount > 0, "Amounts must be greater than 0");
+
+        // Approve tokens
+        token.approve(address(positionManager), tokenAmount);
+        usdt.approve(address(positionManager), usdtAmount);
+
+        // Add liquidity through the position manager
+        INonfungiblePositionManager.MintParams memory params = INonfungiblePositionManager.MintParams({
+            token0: address(usdt),
+            token1: address(token),
+            fee: 3000, // Fee tier: 0.3%
+            tickLower: tickLower,
+            tickUpper: tickUpper,
+            amount0Desired: usdtAmount,
+            amount1Desired: tokenAmount,
+            amount0Min: (usdtAmount * (100 - MAX_SLIPPAGE)) / 100,
+            amount1Min: (tokenAmount * (100 - MAX_SLIPPAGE)) / 100,
+            recipient: address(this),
+            deadline: block.timestamp
+        });
+
+        (uint256 tokenId, uint128 liquidity, , ) = positionManager.mint(params);
+
+        emit LiquidityAdded(msg.sender, usdtAmount, tokenAmount, liquidity);
+    }
+
+    function swapExactUSDTForToken(uint256 usdtAmount) public returns (uint256 tokenAmount) {
+        require(usdtAmount > 0, "Amount must be greater than 0");
+
+        usdt.approve(address(uniswapRouter), usdtAmount);
+
+        // Create a path for the swap
+        bytes memory path = abi.encodePacked(address(usdt), uint24(3000), address(token));
+
+        // Exact input swap
+        tokenAmount = uniswapRouter.exactInput(
+            path,
+            address(this),
+            block.timestamp,
+            usdtAmount,
+            1 // Minimum token out
+        );
+
+        emit SwapExecuted(msg.sender, address(usdt), address(token), usdtAmount, tokenAmount);
+    }
 
     function getChainlinkPrice() public view returns (uint256) {
         (
@@ -125,29 +205,28 @@ contract LiquidityWrapper is Ownable {
         return priceAbs;
     }
 
-    // function getTwapPrice() public view returns (uint256) {
-    //     uint256 price = twapOracle.getPrice();
-    //     require(price > 0, "Invalid TWAP price");
-    //     return price;
-    // }
-
     function getAggregatedPrice() public view returns (uint256) {
         uint256 chainlinkPrice = getChainlinkPrice();
         uint256 pythPrice = getPythPrice();
-        // uint256 twapPrice = getTwapPrice();
-        
-        // All oracles must return valid prices
-        require(chainlinkPrice > 0 && pythPrice > 0, "Invalid oracle prices");
-        
-        // Check price deviation between oracles
-        uint256 maxPrice = max2(chainlinkPrice, pythPrice);
-        uint256 minPrice = min2(chainlinkPrice, pythPrice);
+        uint256 twapPrice = getTwapPrice(3600);
+
+        require(chainlinkPrice > 0 && pythPrice > 0 && twapPrice > 0, "Invalid oracle prices");
+
+        uint256 maxPrice = max3(chainlinkPrice, pythPrice, twapPrice);
+        uint256 minPrice = min3(chainlinkPrice, pythPrice, twapPrice);
         uint256 deviation = ((maxPrice - minPrice) * 100) / minPrice;
-        
+
         require(deviation <= MAX_PRICE_DEVIATION, "Price deviation too high");
-        
-        // Return weighted average (50% Chainlink, 50% Pyth)
-        return (chainlinkPrice * 50 + pythPrice * 50) / 100;
+
+        return (chainlinkPrice + pythPrice + twapPrice) / 3;
+    }
+
+    function max3(uint256 a, uint256 b, uint256 c) internal pure returns (uint256) {
+        return max2(max2(a, b), c);
+    }
+
+    function min3(uint256 a, uint256 b, uint256 c) internal pure returns (uint256) {
+        return min2(min2(a, b), c);
     }
 
     function max2(uint256 a, uint256 b) internal pure returns (uint256) {
@@ -180,7 +259,7 @@ contract LiquidityWrapper is Ownable {
 
         // Swap half USDT for tokens
         uint256 minSwapTokenAmount = minTokenAmount / 2;
-        uint256 receivedTokens = swapExactUSDTForToken(swapAmount, minSwapTokenAmount);
+        uint256 receivedTokens = swapExactUSDTForToken(swapAmount);
 
         // Add liquidity with the remaining USDT and received tokens
         (uint256 usedUSDT, uint256 usedTokens, uint256 liquidity) = addLiquidityInternal(
@@ -248,24 +327,6 @@ contract LiquidityWrapper is Ownable {
         emit LiquidityAdded(msg.sender, usedUSDT, usedTokens, liquidity);
     }
 
-    function swapExactUSDTForToken(uint256 usdtAmount, uint256 minTokenAmount) internal returns (uint256) {
-        address[] memory path = new address[](2);
-        path[0] = address(usdt);
-        path[1] = address(token);
-
-        usdt.approve(address(uniswapRouter), usdtAmount);
-
-        uint256[] memory amounts = uniswapRouter.swapExactTokensForTokens(
-            usdtAmount,
-            minTokenAmount,
-            path,
-            address(this),
-            block.timestamp
-        );
-
-        return amounts[1]; // Return the amount of tokens received
-    }
-
     function addLiquidityInternal(
         uint256 usdtAmount,
         uint256 tokenAmount,
@@ -273,13 +334,11 @@ contract LiquidityWrapper is Ownable {
         uint256 minTokens
     ) internal returns (uint256 usedUSDT, uint256 usedTokens, uint256 liquidity) {
         // Approve router to spend tokens
-        usdt.approve(address(uniswapRouter), usdtAmount);
-        token.approve(address(uniswapRouter), tokenAmount);
+        usdt.approve(address(positionManager), usdtAmount);
+        token.approve(address(positionManager), tokenAmount);
 
         // Add liquidity
-        (usedUSDT, usedTokens, liquidity) = uniswapRouter.addLiquidity(
-            address(usdt),
-            address(token),
+        (usedUSDT, usedTokens, liquidity) = positionManager.addLiquidity(
             usdtAmount,
             tokenAmount,
             minUSDT,
@@ -301,5 +360,68 @@ contract LiquidityWrapper is Ownable {
         if (msg.value > fee) {
             payable(msg.sender).transfer(msg.value - fee);
         }
+    }
+
+    function increaseLiquidity(uint256 tokenId, uint256 usdtAmount, uint256 tokenAmount) external onlyOwner {
+        require(tokenId > 0, "Invalid tokenId");
+        require(usdtAmount > 0 || tokenAmount > 0, "Amounts must be greater than 0");
+
+        // Approve tokens
+        if (usdtAmount > 0) {
+            usdt.approve(address(positionManager), usdtAmount);
+        }
+        if (tokenAmount > 0) {
+            token.approve(address(positionManager), tokenAmount);
+        }
+
+        // Increase liquidity through the position manager
+        INonfungiblePositionManager.IncreaseLiquidityParams memory params = INonfungiblePositionManager.IncreaseLiquidityParams({
+            tokenId: tokenId,
+            amount0Desired: usdtAmount,
+            amount1Desired: tokenAmount,
+            amount0Min: (usdtAmount * (100 - MAX_SLIPPAGE)) / 100,
+            amount1Min: (tokenAmount * (100 - MAX_SLIPPAGE)) / 100,
+            deadline: block.timestamp
+        });
+
+        (uint256 usedUSDT, uint256 usedTokens, uint128 liquidity) = positionManager.increaseLiquidity(params);
+
+        emit LiquidityAdded(msg.sender, usedUSDT, usedTokens, liquidity);
+    }
+
+    function decreaseLiquidity(uint256 tokenId, uint256 liquidity) external onlyOwner {
+        require(tokenId > 0, "Invalid tokenId");
+        require(liquidity > 0, "Liquidity must be greater than 0");
+
+        // Decrease liquidity through the position manager
+        INonfungiblePositionManager.DecreaseLiquidityParams memory params = INonfungiblePositionManager.DecreaseLiquidityParams({
+            tokenId: tokenId,
+            liquidity: liquidity,
+            amount0Min: 0,
+            amount1Min: 0,
+            deadline: block.timestamp
+        });
+
+        (uint256 amount0, uint256 amount1) = positionManager.decreaseLiquidity(params);
+
+        // Transfer tokens back to the owner
+        usdt.transfer(msg.sender, amount0);
+        token.transfer(msg.sender, amount1);
+    }
+
+    function removeLiquidity(uint256 tokenId) external onlyOwner {
+        require(tokenId > 0, "Invalid tokenId");
+
+        // Remove liquidity through the position manager
+        INonfungiblePositionManager.CollectParams memory params = INonfungiblePositionManager.CollectParams({
+            tokenId: tokenId,
+            recipient: msg.sender,
+            amount0Max: type(uint128).max,
+            amount1Max: type(uint128).max
+        });
+
+        (uint256 collected0, uint256 collected1) = positionManager.collect(params);
+
+        emit LiquidityRemoved(msg.sender, tokenId, collected0, collected1);
     }
 }

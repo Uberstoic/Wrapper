@@ -6,7 +6,7 @@ dotenv.config();
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import { 
   LiquidityWrapper, 
-  IUniswapV2Router02,
+  IUniswapV3Router,
   MockERC20, 
   MockChainlinkOracle,
   MockPythOracle,
@@ -165,7 +165,7 @@ describe("LiquidityWrapper", function () {
     });
   });
 
-  describe("IUniswapV2Router02", function () {
+  describe("IUniswapV3Router", function () {
     let uniswapRouter: MockUniswapRouter;
     let tokenA: MockERC20;
     let tokenB: MockERC20;
