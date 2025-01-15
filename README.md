@@ -32,7 +32,7 @@ Follow these steps to run the project locally:
 
 1. Start a local Hardhat node with Mainnet fork:
 ```bash
-npx hardhat node --fork https://eth-mainnet.g.alchemy.com/v2/ALXQXTVc8DCrh8ZMnu2F_7Foac_oWBPk
+npx hardhat node --fork https://eth-mainnet.g.alchemy.com/v2/ (!!!Your Alchemy API Key!!!)
 ```
 
 2. Open a new terminal (Git Bash recommended) and navigate to the project directory
