@@ -364,14 +364,9 @@ async function main() {
     );
   }
 
-  // // Deploy TWAP Oracle
-  // console.log("\nDeploying UniswapTWAPOracle...");
-  // const twapOracleFactory = await ethers.getContractFactory("UniswapTWAPOracle");
-  // const twapOracle = await deployContract("UniswapTWAPOracle", twapOracleFactory, [
-  //   config.uniswapFactory,
-  //   token0Address,
-  //   token1Address
-  // ]);
+  // Deploy TWAP Oracle
+  console.log("\nDeploying UniswapTWAPOracle...");
+  const twapOracle = await ethers.getContractAt("IUniswapTWAPOracle", config.uniswapFactory);
 
   // Deploy LiquidityWrapper
   console.log("\nDeploying LiquidityWrapper...");
@@ -380,7 +375,7 @@ async function main() {
     config.uniswapRouter,
     config.chainlinkBtcUsd,
     config.pythMainnet,
-    // twapOracle.address,
+    twapOracle.address,
     tokenAddress,
     usdtAddress
   ]);
@@ -405,7 +400,7 @@ async function main() {
     token: token?.address || config.usdtMainnet,
     usdt: usdt.address,
     uniswapPair: pairAddress,
-    // twapOracle: twapOracle.address,
+    twapOracle: twapOracle.address,
     wrapper: wrapper.address
   };
 

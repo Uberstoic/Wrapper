@@ -1,5 +1,6 @@
 import { task } from "hardhat/config";
-import { LiquidityWrapper, MockERC20, IPyth } from "../typechain-types";
+import { BigNumber } from "ethers";
+import { LiquidityWrapper, MockERC20, IPyth, IUniswapV2Pair } from "../typechain-types";
 import { HardhatRuntimeEnvironment } from "hardhat/types";
 import { contractConfig } from "../hardhat.config";
 import axios from "axios";
@@ -7,13 +8,13 @@ import axios from "axios";
 // Helper function to get deployed contracts
 async function getContracts(hre: HardhatRuntimeEnvironment) {
     try {
-        const deployments = require('../deployments/localhost_2025-01-14.json');
+        const deployments = require('../deployments/localhost_2025-01-15.json');
         const wrapper = await hre.ethers.getContractAt("LiquidityWrapper", deployments.wrapper) as LiquidityWrapper;
         const token = await hre.ethers.getContractAt("MockERC20", deployments.token) as MockERC20;
         const usdt = await hre.ethers.getContractAt("MockERC20", deployments.usdt) as MockERC20;
         const pythOracle = await hre.ethers.getContractAt("IPyth", contractConfig.mainnet.pythMainnet) as IPyth;
-        // const twapOracle = await hre.ethers.getContractAt("UniswapTWAPOracle", deployments.twapOracle);
-        return { wrapper, token, usdt, pythOracle};
+        const uniswapPair = await hre.ethers.getContractAt("IUniswapV2Pair", deployments.uniswapPair) as IUniswapV2Pair;
+        return { wrapper, token, usdt, pythOracle, uniswapPair };
     } catch (error) {
         console.error("Error: Deployments file not found or contracts not deployed. Please run 'npx hardhat run scripts/deploy.ts --network localhost' first");
         throw error;
@@ -22,7 +23,6 @@ async function getContracts(hre: HardhatRuntimeEnvironment) {
 
 // Helper function to get Pyth price update data
 async function getPythPriceUpdateData() {
-    // Use the endpoint for mainnet
     const pythUrl = "https://hermes.pyth.network/api/latest_vaas?ids[]=e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43";
     try {
         const response = await axios.get(pythUrl);
@@ -34,33 +34,120 @@ async function getPythPriceUpdateData() {
     }
 }
 
-// Get price from oracles
+// Task: Get price from oracles
 task("get-price", "Get the current price of BTC from oracles")
     .setAction(async (taskArgs, hre) => {
         try {
-            // Get deployment info
-            const deployments = require('../deployments/localhost_2025-01-14.json');
-            
+            const { wrapper, uniswapPair } = await getContracts(hre);
+
             // Get Chainlink price
             const chainlinkFeed = await hre.ethers.getContractAt(
                 "AggregatorV3Interface",
                 contractConfig.mainnet.chainlinkBtcUsd
             );
             const [, answer] = await chainlinkFeed.latestRoundData();
-            const chainlinkPrice = Number(answer) / 10**8;
+            const chainlinkPrice = Number(answer) / 10 ** 8;
             console.log("Chainlink BTC Price:", `$${chainlinkPrice.toFixed(2)}`);
 
             // Get Pyth price
-            const { wrapper } = await getContracts(hre);
             const pythPrice = await wrapper.getPythPrice();
-            console.log("Pyth BTC Price:", `$${Number(pythPrice) / 10**8}`);
+            console.log("Pyth BTC Price:", `$${Number(pythPrice) / 10 ** 8}`);
 
-            // // Get TWAP price
-            // const { twapOracle } = await getContracts(hre);
-            // const twapPrice = await twapOracle.getPrice();
-            // console.log("TWAP Price:", `$${Number(twapPrice) / 10**8}`);
+            // Get TWAP price
+            console.log("\nCalculating TWAP...");
+            const { reserve0, reserve1 } = await uniswapPair.getReserves();
+            const blockTimestamp = (await hre.ethers.provider.getBlock("latest")).timestamp;
+            const price0CumulativeLast = await uniswapPair.price0CumulativeLast();
+            const price1CumulativeLast = await uniswapPair.price1CumulativeLast();
+            const interval = BigNumber.from(3600); // 1-hour interval
+
+            const token0TWAP = price0CumulativeLast
+                .sub(reserve0.mul(interval))
+                .div(interval);
+            const token1TWAP = price1CumulativeLast
+                .sub(reserve1.mul(interval))
+                .div(interval);
+
+            console.log("Reserves:", {
+                reserve0: reserve0.toString(),
+                reserve1: reserve1.toString(),
+            });
+            console.log("Cumulative Prices:", {
+                price0CumulativeLast: price0CumulativeLast.toString(),
+                price1CumulativeLast: price1CumulativeLast.toString(),
+                blockTimestamp,
+            });
+            console.log("TWAP Prices:", {
+                token0TWAP: token0TWAP.toString(),
+                token1TWAP: token1TWAP.toString(),
+            });
         } catch (error) {
             console.error("Error getting prices:", error);
+        }
+    });
+
+// Task: Update TWAP oracle
+task("update-twap", "Update the TWAP oracle price")
+    .setAction(async (taskArgs, hre) => {
+        try {
+            const { uniswapPair } = await getContracts(hre);
+            console.log("\nReading current cumulative price...");
+
+            const { reserve0, reserve1 } = await uniswapPair.getReserves();
+            const blockTimestamp = (await hre.ethers.provider.getBlock("latest")).timestamp;
+            const price0Cumulative = await uniswapPair.price0CumulativeLast();
+            const price1Cumulative = await uniswapPair.price1CumulativeLast();
+
+            console.log("Reserves:", {
+                reserve0: reserve0.toString(),
+                reserve1: reserve1.toString(),
+            });
+            console.log("Cumulative Prices:", {
+                price0Cumulative: price0Cumulative.toString(),
+                price1Cumulative: price1Cumulative.toString(),
+                blockTimestamp,
+            });
+
+            console.log("\nNOTE: Use these values to calculate TWAP off-chain or store them for future reference.");
+        } catch (error) {
+            console.error("Error updating TWAP:", error);
+        }
+    });
+
+// Task: Get TWAP price
+task("get-twap-price", "Get the current TWAP price")
+    .setAction(async (taskArgs, hre) => {
+        try {
+            const { uniswapPair } = await getContracts(hre);
+            console.log("Calculating TWAP...");
+
+            const { reserve0, reserve1 } = await uniswapPair.getReserves();
+            const price0CumulativeLast = await uniswapPair.price0CumulativeLast();
+            const price1CumulativeLast = await uniswapPair.price1CumulativeLast();
+            const interval = BigNumber.from("3600"); // Interval in seconds (1 hour)
+
+            const token0TWAP = price0CumulativeLast
+                .sub(reserve0.mul(interval))
+                .div(interval);
+            const token1TWAP = price1CumulativeLast
+                .sub(reserve1.mul(interval))
+                .div(interval);
+
+            console.log("Reserves:", {
+                reserve0: reserve0.toString(),
+                reserve1: reserve1.toString(),
+            });
+            console.log("Cumulative Prices:", {
+                price0CumulativeLast: price0CumulativeLast.toString(),
+                price1CumulativeLast: price1CumulativeLast.toString(),
+                interval: interval.toString(),
+            });
+            console.log("TWAP Prices:", {
+                token0TWAP: token0TWAP.toString(),
+                token1TWAP: token1TWAP.toString(),
+            });
+        } catch (error) {
+            console.error("Error getting TWAP price:", error);
         }
     });
 
@@ -122,7 +209,6 @@ task("check-balances", "Check token balances")
         console.log(`Token Balance: ${hre.ethers.utils.formatEther(tokenBalance)}`);
     });
 
-/*
 task("update-chainlink-price", "Update mock Chainlink oracle price to match Pyth")
     .setAction(async (_, hre) => {
         try {
@@ -153,7 +239,6 @@ task("update-chainlink-price", "Update mock Chainlink oracle price to match Pyth
             console.error("Error updating mock Chainlink oracle price:", error);
         }
     });
-*/
 
 // Update Chainlink price 
 task("update-chainlink", "Update Chainlink price feed")
@@ -191,24 +276,6 @@ task("update-chainlink", "Update Chainlink price feed")
         }
     });
 
-// // Update TWAP oracle
-// task("update-twap", "Update the TWAP oracle price")
-//     .setAction(async (taskArgs, hre) => {
-//         const { twapOracle } = await getContracts(hre);
-//         console.log("\nUpdating TWAP oracle...");
-//         const tx = await twapOracle.update();
-//         await tx.wait();
-//         console.log("TWAP oracle updated successfully!");
-//     });
-
-// // Get TWAP price
-// task("get-twap-price", "Get the current TWAP price")
-//     .setAction(async (taskArgs, hre) => {
-//         const { twapOracle } = await getContracts(hre);
-//         const price = await twapOracle.getPrice();
-//         console.log("\nTWAP Price:", hre.ethers.utils.formatUnits(price, 8));
-//     });
-
 // Update Pyth price
 task("update-pyth", "Update Pyth price feed")
     .setAction(async (taskArgs, hre) => {
@@ -233,17 +300,17 @@ task("update-pyth", "Update Pyth price feed")
     });
 
 // Increase time
-// task("increase-time", "Increase blockchain time")
-//     .addParam("seconds", "Number of seconds to increase")
-//     .setAction(async (taskArgs, hre) => {
-//         try {
-//             await hre.network.provider.send("evm_increaseTime", [parseInt(taskArgs.seconds)]);
-//             await hre.network.provider.send("evm_mine");
-//             console.log(`Increased time by ${taskArgs.seconds} seconds`);
-//         } catch (error) {
-//             console.error("Error increasing time:", error);
-//         }
-//     });
+task("increase-time", "Increase blockchain time")
+    .addParam("seconds", "Number of seconds to increase")
+    .setAction(async (taskArgs, hre) => {
+        try {
+            await hre.network.provider.send("evm_increaseTime", [parseInt(taskArgs.seconds)]);
+            await hre.network.provider.send("evm_mine");
+            console.log(`Increased time by ${taskArgs.seconds} seconds`);
+        } catch (error) {
+            console.error("Error increasing time:", error);
+        }
+    });
 
 // // Check pool liquidity
 // task("check-pool", "Check Uniswap pool liquidity")

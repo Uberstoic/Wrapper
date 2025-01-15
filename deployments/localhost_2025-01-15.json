@@ -1,0 +1,10 @@
+{
+  "network": "localhost",
+  "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "token": "0xfDb6669cF60C1dBfB0f72Ea50A6eC5e0FD6089E1",
+  "usdt": "0x2fe19128A8257182fdD77f90eA96D27cA342897A",
+  "uniswapPair": "0x93Cbb789d39C61D55CEA00A0Ef8B322A01891701",
+  "twapOracle": "0x93Cbb789d39C61D55CEA00A0Ef8B322A01891701",
+  "wrapper": "0x70e754531418461eF2366b72cd396337d2AD6D5d",
+  "timestamp": "2025-01-15T15:05:27.171Z"
+}
