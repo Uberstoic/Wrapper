@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 interface IUniswapV2Pair {
+    function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data) external;
     function price0CumulativeLast() external view returns (uint);
     function price1CumulativeLast() external view returns (uint);
     function token0() external view returns (address);

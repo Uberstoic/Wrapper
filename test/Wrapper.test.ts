@@ -15,7 +15,8 @@ import {
   MockChainlinkOracle__factory,
   MockPythOracle__factory,
   LiquidityWrapper__factory,
-  MockUniswapRouter__factory
+  MockUniswapRouter__factory,
+  MockUniswapTWAPOracle__factory
 } from "../typechain-types";
 
 const provider = new ethers.providers.JsonRpcProvider(
@@ -36,6 +37,7 @@ describe("LiquidityWrapper", function () {
   let chainlinkOracle: MockChainlinkOracle;
   let pythOracle: MockPythOracle;
   let uniswapRouter: MockUniswapRouter;
+  let twapOracle: MockUniswapTWAPOracle;
 
   beforeEach(async function () {
     [owner, user, otherUser] = await ethers.getSigners();
@@ -73,6 +75,14 @@ describe("LiquidityWrapper", function () {
     // Set token address in router
     await uniswapRouter.setToken(token.address);
 
+    // Deploy TWAP oracle
+    const MockTWAPOracle = await ethers.getContractFactory("MockUniswapTWAPOracle") as MockUniswapTWAPOracle__factory;
+    twapOracle = await MockTWAPOracle.deploy();
+    await twapOracle.deployed();
+    
+    // Initialize TWAP oracle with a price
+    await twapOracle.setPrice(ethers.utils.parseUnits("30000", 8)); // $30,000
+
     // Deploy wrapper contract
     const Wrapper = await ethers.getContractFactory("LiquidityWrapper") as LiquidityWrapper__factory;
     wrapper = await Wrapper.deploy(
@@ -80,7 +90,8 @@ describe("LiquidityWrapper", function () {
       chainlinkOracle.address,
       pythOracle.address,
       token.address,
-      usdt.address
+      usdt.address,
+      twapOracle.address
     );
     await wrapper.deployed();
 
@@ -117,6 +128,7 @@ describe("LiquidityWrapper", function () {
         Wrapper.deploy(
           ethers.constants.AddressZero,
           chainlinkOracle.address,
+          twapOracle.address,
           pythOracle.address,
           token.address,
           usdt.address
@@ -129,7 +141,8 @@ describe("LiquidityWrapper", function () {
           ethers.constants.AddressZero,
           pythOracle.address,
           token.address,
-          usdt.address
+          usdt.address,
+          twapOracle.address
         )
       ).to.be.reverted;
 
@@ -139,7 +152,8 @@ describe("LiquidityWrapper", function () {
           chainlinkOracle.address,
           ethers.constants.AddressZero,
           token.address,
-          usdt.address
+          usdt.address,
+          twapOracle.address
         )
       ).to.be.reverted;
 
@@ -149,7 +163,8 @@ describe("LiquidityWrapper", function () {
           chainlinkOracle.address,
           pythOracle.address,
           ethers.constants.AddressZero,
-          usdt.address
+          usdt.address,
+          twapOracle.address
         )
       ).to.be.reverted;
 
@@ -159,7 +174,8 @@ describe("LiquidityWrapper", function () {
           chainlinkOracle.address,
           pythOracle.address,
           token.address,
-          ethers.constants.AddressZero
+          ethers.constants.AddressZero,
+          twapOracle.address
         )
       ).to.be.reverted;
     });
