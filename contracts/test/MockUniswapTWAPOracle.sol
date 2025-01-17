@@ -17,7 +17,7 @@ contract MockUniswapTWAPOracle is IUniswapTWAPOracle {
     function setPrice(uint256 _price) external {
         mockPrice = _price;
         lastUpdate = block.timestamp;
-        priceSet = true;
+        priceSet = _price > 0;
     }
 
     function update() external override {

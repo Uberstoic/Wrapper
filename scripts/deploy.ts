@@ -79,7 +79,7 @@ async function verifyContract(
 async function saveDeploymentInfo(info: any) {
   const deploymentDir = path.join(__dirname, "../deployments");
   const now = new Date();
-  const offset = now.getTimezoneOffset() * 60000; // Смещение в миллисекундах
+  const offset = now.getTimezoneOffset() * 60000;
   const localDate = new Date(now.getTime() - offset).toISOString().split('T')[0];
   
   const filename = `${info.network}_${localDate}.json`;

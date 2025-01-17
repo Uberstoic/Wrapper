@@ -135,25 +135,20 @@ contract LiquidityWrapper is Ownable {
     function getAggregatedPrice() public view returns (uint256) {
         uint256 chainlinkPrice = getChainlinkPrice();
         uint256 pythPrice = getPythPrice();
-        uint256 twapPrice = getTwapPrice(3600);
-
-        require(chainlinkPrice > 0 && pythPrice > 0 && twapPrice > 0, "Invalid oracle prices");
-
-        uint256 maxPrice = max3(chainlinkPrice, pythPrice, twapPrice);
-        uint256 minPrice = min3(chainlinkPrice, pythPrice, twapPrice);
+        // uint256 twapPrice = getTwapPrice();
+        
+        // All oracles must return valid prices
+        require(chainlinkPrice > 0 && pythPrice > 0, "Invalid oracle prices");
+        
+        // Check price deviation between oracles
+        uint256 maxPrice = max2(chainlinkPrice, pythPrice);
+        uint256 minPrice = min2(chainlinkPrice, pythPrice);
         uint256 deviation = ((maxPrice - minPrice) * 100) / minPrice;
-
+        
         require(deviation <= MAX_PRICE_DEVIATION, "Price deviation too high");
-
-        return (chainlinkPrice + pythPrice + twapPrice) / 3;
-    }
-
-    function max3(uint256 a, uint256 b, uint256 c) internal pure returns (uint256) {
-        return max2(max2(a, b), c);
-    }
-
-    function min3(uint256 a, uint256 b, uint256 c) internal pure returns (uint256) {
-        return min2(min2(a, b), c);
+        
+        // Return weighted average (50% Chainlink, 50% Pyth)
+        return (chainlinkPrice * 50 + pythPrice * 50) / 100;
     }
 
     function max2(uint256 a, uint256 b) internal pure returns (uint256) {

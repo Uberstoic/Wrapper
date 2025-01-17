@@ -6,7 +6,6 @@ dotenv.config();
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import { 
   LiquidityWrapper, 
-  IUniswapV2Router02,
   MockERC20, 
   MockChainlinkOracle,
   MockPythOracle,
@@ -293,6 +292,19 @@ describe("LiquidityWrapper", function () {
       await pythOracle.setPrice(30000 * 10**8); // $30,000
     });
 
+    it("Should use average when both oracles work", async function () {
+      const chainlinkRawPrice = 3000 * 10**8; 
+      const pythRawPrice = 3060 * 10**8;
+    
+      await chainlinkOracle.setPrice(chainlinkRawPrice);
+      await pythOracle.setPrice(pythRawPrice);
+      const chainlinkPrice = chainlinkRawPrice;
+      const pythPrice = pythRawPrice;
+      const expectedPrice = (chainlinkPrice + pythPrice) / 2;
+      const aggregatedPrice = await wrapper.getAggregatedPrice();
+      expect(aggregatedPrice).to.equal(expectedPrice);
+    });    
+
     it("Should get price from Chainlink", async function () {
       const price = await wrapper.getChainlinkPrice();
       expect(price).to.equal(30000 * 10**8);
@@ -318,13 +330,6 @@ describe("LiquidityWrapper", function () {
       await pythOracle.setPrice(0);
       await expect(wrapper.getPythPrice())
         .to.be.revertedWith("Invalid Pyth price");
-    });
-
-    it("Should use average when both oracles work", async function () {
-      await chainlinkOracle.setPrice(3000 * 10**8);
-      await pythOracle.setPrice(4000 * 10**8);
-      const price = await wrapper.getAggregatedPrice();
-      expect(price).to.equal(3500 * 10**8);
     });
 
     it("Should handle extreme price differences between oracles", async function () {
@@ -760,4 +765,87 @@ describe("LiquidityWrapper", function () {
     });
   });
 
+  describe("MockUniswapTWAPOracle", function () {
+    let oracle: MockUniswapTWAPOracle;
+  
+    beforeEach(async function () {
+      const MockUniswapTWAPOracle = await ethers.getContractFactory("MockUniswapTWAPOracle");
+      oracle = await MockUniswapTWAPOracle.deploy();
+      await oracle.deployed();
+    });
+  
+    describe("Initialization", function () {
+      it("Should initialize with default price and timestamp", async function () {
+        const price = await oracle.getPrice();
+        const lastUpdate = (await oracle.getLastUpdate()).toNumber();
+        expect(price).to.equal(30000 * 10 ** 8); // Default price $30,000
+        expect(lastUpdate).to.be.a("number");
+      });
+    });
+  
+    describe("setPrice", function () {
+      it("Should update the mock price and timestamp", async function () {
+        const newPrice = 35000 * 10 ** 8;
+        await oracle.setPrice(newPrice);
+  
+        const price = await oracle.getPrice();
+        const lastUpdate = (await oracle.getLastUpdate()).toNumber();
+  
+        expect(price).to.equal(newPrice);
+        expect(lastUpdate).to.be.closeTo(Math.floor(Date.now() / 1000), 30); // Allowing 30 seconds tolerance
+      });
+    });
+  
+    describe("update", function () {
+      it("Should update the lastUpdate timestamp", async function () {
+        const initialUpdate = (await oracle.getLastUpdate()).toNumber();
+        await ethers.provider.send("evm_increaseTime", [3600]); // Advance time by 1 hour
+        await ethers.provider.send("evm_mine", []);
+  
+        await oracle.update();
+        const lastUpdate = (await oracle.getLastUpdate()).toNumber();
+  
+        expect(lastUpdate).to.be.a("number");
+        expect(lastUpdate).to.be.greaterThan(initialUpdate);
+        expect(lastUpdate).to.be.closeTo(Math.floor(Date.now() / 1000), 30); // Allowing 30 seconds tolerance
+      });
+  
+      it("Should revert if price is not initialized", async function () {
+        await oracle.setPrice(0); // Simulate uninitialization
+        await expect(oracle.update()).to.be.revertedWith("Price not initialized");
+      });
+    });
+  
+    describe("getPrice", function () {
+      it("Should return the correct price", async function () {
+        const newPrice = 40000 * 10 ** 8;
+        await oracle.setPrice(newPrice);
+  
+        const price = await oracle.getPrice();
+        expect(price).to.equal(newPrice);
+      });
+  
+      it("Should revert if price is not initialized", async function () {
+        await oracle.setPrice(0); // Simulate uninitialization
+        await expect(oracle.getPrice()).to.be.revertedWith("Price not initialized");
+      });
+    });
+  
+    describe("consult", function () {
+      it("Should return the mock price", async function () {
+        const newPrice = 45000 * 10 ** 8;
+        await oracle.setPrice(newPrice);
+  
+        const consultedPrice = await oracle.consult("0x0000000000000000000000000000000000000001", 1, "0x0000000000000000000000000000000000000002");
+        expect(consultedPrice).to.equal(newPrice);
+      });
+  
+      it("Should revert if price is not initialized", async function () {
+        await oracle.setPrice(0); // Simulate uninitialization
+        await expect(
+          oracle.consult("0x0000000000000000000000000000000000000001", 1, "0x0000000000000000000000000000000000000002")
+        ).to.be.revertedWith("Price not initialized");
+      });
+    });
+  });
 });
