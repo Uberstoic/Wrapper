@@ -49,9 +49,9 @@ contract LiquidityWrapper is Ownable {
         address _uniswapRouter,
         address _chainlinkOracle,
         address _pythOracle,
-        address _twapOracle,
         address _tokenAddress,
-        address _usdtAddress
+        address _usdtAddress,
+        address _twapOracle
     ) Ownable() {
         require(_uniswapRouter != address(0), "Invalid router address");
         require(_chainlinkOracle != address(0), "Invalid Chainlink oracle address");
